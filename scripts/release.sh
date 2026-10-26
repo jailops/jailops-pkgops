@@ -47,32 +47,38 @@ body=$(awk '/^## \[Unreleased\]/{f=1;next} /^## /{f=0} f' CHANGELOG.md | tr -d '
 say "changelog ok"
 
 # --- checks -----------------------------------------------------------------------------------------------
-say "gofmt"
-bad=$(gofmt -l . | grep -v '^web/node_modules/' || true)
-[ -z "$bad" ] || { echo "$bad" >&2; die "gofmt: unformatted files above"; }
-say "go vet"
-go vet ./...
-say "go test -race ./..."
-go test -race -count=1 ./...
+# The release workflow repeats gofmt, vet and the tests on the tagged commit before GoReleaser publishes anything, so a
+# real release only tags and pushes. The full local checks run for `just release-dry` (or CHECKS=1 just release ...).
+if [ "$DRY" = 1 ] || [ "${CHECKS:-0}" = 1 ]; then
+  say "gofmt"
+  bad=$(gofmt -l . | grep -v '^web/node_modules/' || true)
+  [ -z "$bad" ] || { echo "$bad" >&2; die "gofmt: unformatted files above"; }
+  say "go vet"
+  go vet ./...
+  say "go test -race ./..."
+  go test -race -count=1 ./...
 
-# The embedded web UI (internal/webui/dist) is committed, so a release needs no Node. When Node is here,
-# prove the committed dist matches web/; either way prove a clean checkout builds.
-if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
-  say "web: typecheck, unit tests, build, and the committed dist is up to date"
-  (cd web && npm ci --no-audit --no-fund && npm run typecheck && npm test && npm run build)
-  [ -z "$(git status --porcelain -- internal/webui/dist)" ] || {
-    git status --short -- internal/webui/dist >&2
-    die "internal/webui/dist is out of date with web/: commit the result of 'just web' first"
-  }
+  # The embedded web UI (internal/webui/dist) is committed, so a release needs no Node. When Node is here,
+  # prove the committed dist matches web/; either way prove a clean checkout builds.
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    say "web: typecheck, unit tests, build, and the committed dist is up to date"
+    (cd web && npm ci --no-audit --no-fund && npm run typecheck && npm test && npm run build)
+    [ -z "$(git status --porcelain -- internal/webui/dist)" ] || {
+      git status --short -- internal/webui/dist >&2
+      die "internal/webui/dist is out of date with web/: commit the result of 'just web' first"
+    }
+  else
+    echo "WARNING: node/npm not found: the web UI tests and the dist up-to-date check were SKIPPED" >&2
+  fi
+  say "a clean checkout builds without Node (git archive HEAD, go build)"
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+  git archive HEAD | tar -x -C "$tmp"
+  (cd "$tmp" && CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/pkgops)
+  say "all checks passed"
 else
-  echo "WARNING: node/npm not found: the web UI tests and the dist up-to-date check were SKIPPED" >&2
+  say "local checks skipped (the release workflow runs them on the tag): use just release-dry for the full set"
 fi
-say "a clean checkout builds without Node (git archive HEAD, go build)"
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
-git archive HEAD | tar -x -C "$tmp"
-(cd "$tmp" && CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/pkgops)
-say "all checks passed"
 
 # --- the release itself -----------------------------------------------------------------------------------
 act "write version.txt = $VERSION"

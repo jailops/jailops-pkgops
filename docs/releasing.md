@@ -5,19 +5,20 @@ Releases are cut straight on `master`: no pull request, no release branch.
 ## Cut a release
 
 ```sh
-just release-dry v0.1.0   # all checks, changes and pushes nothing
-just release v0.1.0
+just release v0.1.0       # tags and pushes in a fraction of a second; CI does the testing and the building
+just release-dry v0.1.0   # optional: the full local check set, changes and pushes nothing
 ```
 
 `just release` (`scripts/release.sh`) refuses unless: the tree is clean, the branch is `master` and not behind
 `origin/master`, `vX.Y.Z[-pre]` is valid semver and the tag exists neither locally nor on origin, and
-`CHANGELOG.md` has a non-empty `## [Unreleased]`. It then runs gofmt, `go vet`, `go test -race ./...`, the web
-checks (`npm ci`, typecheck, tests, build, and that the committed `internal/webui/dist` is unchanged; skipped
-with a warning when Node is missing), and builds a `git archive HEAD` copy with `CGO_ENABLED=0` to prove a clean
-checkout needs no Node. Only then it writes `version.txt` (bare `0.1.0`, as in the other JailOps projects), moves
-the Unreleased entries under `## [0.1.0] - DATE`, commits `Release v0.1.0`, creates the annotated tag and runs
-`git push --atomic origin master refs/tags/v0.1.0`. If the web UI sources changed, run `just web` and commit
-`internal/webui/dist` first. Write the Unreleased notes before releasing.
+`CHANGELOG.md` has a non-empty `## [Unreleased]`. It does **not** run the tests: it writes `version.txt` (bare
+`0.1.0`, as in the other JailOps projects), moves the Unreleased entries under `## [0.1.0] - DATE`, commits
+`Release v0.1.0`, creates the annotated tag and runs `git push --atomic origin master refs/tags/v0.1.0`. The tag
+starts the release workflow, which runs gofmt, `go vet` and `go test -race` on the tagged commit **before**
+GoReleaser publishes anything, so a broken commit never becomes a release (the CI on `master` has already run the same
+checks and the web tests on every push). `just release-dry` (or `CHECKS=1 just release ...`) runs the full local set
+(gofmt, vet, tests, the web checks and a clean `git archive` build) if you want it before tagging. If the web UI
+sources changed, run `just web` and commit `internal/webui/dist` first. Write the Unreleased notes before releasing.
 
 ## What the workflow does
 

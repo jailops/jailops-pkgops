@@ -54,12 +54,12 @@ example: build
 
 # --- release (always straight on master, no PR) ---
 
-# Cut a release, e.g. `just release v0.1.0`: checks, version.txt, CHANGELOG.md, commit, tag, push master + tag.
+# Cut a release, e.g. `just release v0.1.0`: version.txt, CHANGELOG.md, commit, tag, push master + tag. No tests here: the release workflow runs them.
 # The tag push runs .github/workflows/release.yml. Run by a person only; see docs/releasing.md.
 release VERSION:
     bash scripts/release.sh {{VERSION}}
 
-# Same checks as `release`, changes and pushes nothing.
+# The full local checks (gofmt, vet, tests, ...) and what `release` would do; changes and pushes nothing.
 release-dry VERSION:
     DRY=1 bash scripts/release.sh {{VERSION}}
 
