@@ -45,7 +45,7 @@ runs:
     - name: Install pkgops (release binary of this tag, else built from this checkout)
       shell: bash
       env:
-        # the ref after @ in `uses: jailops/pkgops@v0.1.0`; a branch or SHA is not a release, so it is built
+        # the ref after @ in `uses: jailops/jailops-pkgops@v0.1.0`; a branch or SHA is not a release, so it is built
         PKGOPS_VERSION: ${{ github.action_ref }}
         PKGOPS_REPO: ${{ github.action_repository }}
       run: |

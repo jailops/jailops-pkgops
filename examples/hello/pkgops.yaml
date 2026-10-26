@@ -6,7 +6,7 @@ desc: |
   hello answers HTTP requests with a greeting. It exists to show a Go
   daemon, an rc.d script, a config file and a service user packaged with
   pkgops, without a FreeBSD builder.
-www: https://github.com/jailops/pkgops
+www: https://github.com/jailops/jailops-pkgops
 maintainer: pkgops@jailops.net
 license: BSD2CLAUSE
 categories: [sysutils]

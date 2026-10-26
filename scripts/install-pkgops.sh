@@ -7,18 +7,18 @@
 # Environment:
 #   PKGOPS_VERSION  release tag to download, e.g. v0.1.0. Empty, or not a vX.Y.Z tag (a branch, a commit SHA):
 #                   no download, build from source.
-#   PKGOPS_REPO     GitHub owner/name of the releases        (default: jailops/pkgops)
+#   PKGOPS_REPO     GitHub owner/name of the releases        (default: jailops/jailops-pkgops)
 #   PKGOPS_BASE_URL download base, for tests        (default: https://github.com/$PKGOPS_REPO/releases/download)
 #   PKGOPS_SRC      source checkout for the fallback build   (default: the repository this script is in)
 #
 # Prints the final directory holding `pkgops` on stdout's last line. Works on linux and darwin, amd64 and arm64.
-# Note: `go install ./cmd/pkgops@TAG` is not valid Go, and `go install github.com/jailops/pkgops/...@TAG` fails
+# Note: `go install ./cmd/pkgops@TAG` is not valid Go, and `go install github.com/jailops/jailops-pkgops/...@TAG` fails
 # because the module is jailops.net/pkgops; the source fallback therefore builds the checkout that is at the tag.
 set -eu
 
 DEST=${1:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/pkgops-bin}
 TAG=${PKGOPS_VERSION:-}
-REPO=${PKGOPS_REPO:-jailops/pkgops}
+REPO=${PKGOPS_REPO:-jailops/jailops-pkgops}
 SRC=${PKGOPS_SRC:-$(cd "$(dirname "$0")/.." && pwd)}
 mkdir -p "$DEST"
 

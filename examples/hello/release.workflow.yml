@@ -18,9 +18,9 @@ jobs:
           go-version-file: go.mod
       # Pin the action to a release tag (or, even better, a full commit SHA).
       # The first release (v0.1.0) must exist before this works; later, bump the pin to the newest tag from
-      # https://github.com/jailops/pkgops/releases.
+      # https://github.com/jailops/jailops-pkgops/releases.
       # Never use @master in a workflow that holds your signing key.
-      - uses: jailops/pkgops@v0.1.0
+      - uses: jailops/jailops-pkgops@v0.1.0
         with:
           spec: pkgops.yaml
           # abis: omitted = every ABI in pkgops.yaml (amd64 and aarch64), built in this one step

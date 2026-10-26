@@ -126,7 +126,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version-file: go.mod }
-      - uses: jailops/pkgops@v0.1.0   # the first release must exist before this works
+      - uses: jailops/jailops-pkgops@v0.1.0   # the first release must exist before this works
         with:
           # abis: omitted = every ABI in pkgops.yaml, all built in this one step
           signing-key: ${{ secrets.PKG_SIGNING_KEY }}
@@ -137,7 +137,7 @@ Pin the action to a release tag (or a full commit SHA); the action runs with
 your signing key in its environment, so never track `@master` and review
 changes before bumping the pin. **The first release (`v0.1.0`) must be created
 before this example works** (see [releasing.md](releasing.md)): until the tag
-and its GitHub release exist, `uses: jailops/pkgops@v0.1.0` cannot resolve.
+and its GitHub release exist, `uses: jailops/jailops-pkgops@v0.1.0` cannot resolve.
 
 For a tag `vX.Y.Z` the action downloads `pkgops_X.Y.Z_linux_<arch>.tar.gz` from
 that GitHub release (linux amd64 or arm64 runners), verifies it against the

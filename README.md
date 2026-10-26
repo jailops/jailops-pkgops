@@ -21,12 +21,12 @@ Module `jailops.net/pkgops`, CLI `pkgops`, BSD 2-Clause.
 ## Install
 
 Download the archive for your OS and CPU (linux, darwin, windows, freebsd; amd64,
-arm64) from the [GitHub releases](https://github.com/jailops/pkgops/releases), check
+arm64) from the [GitHub releases](https://github.com/jailops/jailops-pkgops/releases), check
 it against `checksums.txt` (sha256), unpack it and put `pkgops` on your `PATH`:
 
 ```sh
-v=0.1.0; curl -fsSLO https://github.com/jailops/pkgops/releases/download/v$v/pkgops_${v}_linux_amd64.tar.gz
-curl -fsSLO https://github.com/jailops/pkgops/releases/download/v$v/checksums.txt
+v=0.1.0; curl -fsSLO https://github.com/jailops/jailops-pkgops/releases/download/v$v/pkgops_${v}_linux_amd64.tar.gz
+curl -fsSLO https://github.com/jailops/jailops-pkgops/releases/download/v$v/checksums.txt
 sha256sum --ignore-missing -c checksums.txt && tar -xzf pkgops_${v}_linux_amd64.tar.gz pkgops
 ./pkgops version
 ```
@@ -34,7 +34,7 @@ sha256sum --ignore-missing -c checksums.txt && tar -xzf pkgops_${v}_linux_amd64.
 From source: `go install jailops.net/pkgops/cmd/pkgops@v0.1.0` (needs the vanity import
 page on jailops.net, **UNVERIFIED**; see [docs/releasing.md](docs/releasing.md)), or
 clone the repository and run `just build`. In GitHub Actions use
-`uses: jailops/pkgops@v0.1.0` ([docs/hosting.md](docs/hosting.md)). There is no
+`uses: jailops/jailops-pkgops@v0.1.0` ([docs/hosting.md](docs/hosting.md)). There is no
 release until `v0.1.0` has been cut.
 
 ## What PkgOps is for, and what it is not for

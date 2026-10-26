@@ -43,5 +43,5 @@ changelog:
 release:
   github:
     owner: jailops
-    name: pkgops
+    name: jailops-pkgops
   prerelease: auto

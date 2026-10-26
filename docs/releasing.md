@@ -43,16 +43,16 @@ replace the whole release; there are no signatures yet.
 
 - Download the archive (README, "Install").
 - `go install jailops.net/pkgops/cmd/pkgops@v0.1.0` works only if `https://jailops.net/pkgops/...?go-get=1` answers
-  with `<meta name="go-import" content="jailops.net/pkgops git https://github.com/jailops/pkgops">`.
+  with `<meta name="go-import" content="jailops.net/pkgops git https://github.com/jailops/jailops-pkgops">`.
   **UNVERIFIED, and not in place as of this writing**: the jailops-web site has that tag only for `jailops.net/jailops`
   (`src/pages/gomodule.html`); `/pkgops/` is the product page without the tag, and nginx serves subpaths such as
-  `/pkgops/cmd/pkgops` only for `/jailops/`. To fix it, add `go_import: jailops.net/pkgops https://github.com/jailops/pkgops`
+  `/pkgops/cmd/pkgops` only for `/jailops/`. To fix it, add `go_import: jailops.net/pkgops https://github.com/jailops/jailops-pkgops`
   to the front matter of `src/pages/pkgops.html` and a `location ^~ /pkgops/ { try_files /pkgops/index.html =404; }`
   in `nginx/jailops.net.conf` (as for `/jailops/`).
-- `go install github.com/jailops/pkgops/cmd/pkgops@v0.1.0` does **not** work: `go.mod` declares
+- `go install github.com/jailops/jailops-pkgops/cmd/pkgops@v0.1.0` does **not** work: `go.mod` declares
   `module jailops.net/pkgops`, and Go rejects a module fetched under a different path ("module declares its path
-  as: jailops.net/pkgops but was required as: github.com/jailops/pkgops"). The alternative is a clone:
-  `git clone --branch v0.1.0 https://github.com/jailops/pkgops && cd pkgops && go install ./cmd/pkgops`.
+  as: jailops.net/pkgops but was required as: github.com/jailops/jailops-pkgops"). The alternative is a clone:
+  `git clone --branch v0.1.0 https://github.com/jailops/jailops-pkgops && cd pkgops && go install ./cmd/pkgops`.
   `pkgops version` after a `go install ...@tag` takes the version from the module build info.
 
 The action does not use `go install`: it downloads the release binary or builds its own checkout

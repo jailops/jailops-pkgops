@@ -100,4 +100,4 @@ if ! git push --atomic "$REMOTE" "$BRANCH" "refs/tags/$TAG"; then
   echo "or undo:  git tag -d $TAG && git reset --hard HEAD~1" >&2
   exit 1
 fi
-say "released $TAG: watch https://github.com/jailops/pkgops/actions (workflow: release)"
+say "released $TAG: watch https://github.com/jailops/jailops-pkgops/actions (workflow: release)"
