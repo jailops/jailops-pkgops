@@ -6,6 +6,8 @@ and `.goreleaser.yaml` publishes the GitHub release notes from the commits.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-26
+
 ### Added
 - Private registry: `pkgops pki` (offline-capable CA in pure Go: init, issue server/client, revoke, list, crl, show),
   `pkgops serve --tls-cert/--tls-key [--client-ca [--crl]]` (certificates, CA and CRL reload without a restart;
