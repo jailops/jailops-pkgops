@@ -1,3 +1,6 @@
+
+# go.mod names the Go it needs: let the go command fetch that toolchain instead of failing on an older local Go
+export GOTOOLCHAIN := "auto"
 # pkgops development tasks (https://github.com/casey/just)
 
 default: test
