@@ -1,0 +1,12 @@
+0 /usr/local/bin
+11 etc/hello
+15 rc.d
+
+hello 0.1.0
+>0
+hello
+>1
+hello.conf.sample
+>2
+hello
+

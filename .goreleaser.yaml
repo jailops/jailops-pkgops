@@ -1,0 +1,47 @@
+# GoReleaser: the release archives of the pkgops CLI, run by .github/workflows/release.yml on a v* tag.
+# The embedded web UI (internal/webui/dist) is committed, so no Node step is needed here.
+#
+#   goreleaser check
+#   goreleaser release --snapshot --clean --skip=publish     a local trial, publishes nothing (just snapshot)
+version: 2
+project_name: pkgops
+
+builds:
+  - id: pkgops
+    main: ./cmd/pkgops
+    binary: pkgops
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    goos: [linux, darwin, windows, freebsd]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .Date }}
+
+archives:
+  - id: pkgops
+    ids: [pkgops]
+    name_template: "pkgops_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude: ['^docs:', '^test:', '^ci:', '^Merge ']
+
+release:
+  github:
+    owner: jailops
+    name: pkgops
+  prerelease: auto

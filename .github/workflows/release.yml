@@ -1,0 +1,40 @@
+name: release
+
+# A tag v* makes the GitHub release: archives for linux, darwin, windows and freebsd (amd64, arm64) and
+# checksums.txt (sha256). Created by `just release vX.Y.Z` (docs/releasing.md); the action in action.yml
+# downloads the linux binary from this release.
+on:
+  push:
+    tags: ["v*"]
+
+# The default GITHUB_TOKEN, with the one scope GoReleaser needs.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the changelog needs the history and the tags
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt, vet and tests on the tagged commit
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          go test -race ./...
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "v2.18.3"   # pinned; bump deliberately
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

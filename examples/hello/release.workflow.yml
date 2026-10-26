@@ -1,0 +1,28 @@
+# Copy to .github/workflows/release.yml in your own repository.
+# One-time setup: pkgops key generate --out repo.key
+#   gh secret set PKG_SIGNING_KEY < repo.key
+#   commit repo.pub (or fetch pkgops.pub from the gh-pages branch) for your users
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write        # push the gh-pages branch / create releases
+jobs:
+  pkg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Pin the action to a release tag (or, even better, a full commit SHA).
+      # The first release (v0.1.0) must exist before this works; later, bump the pin to the newest tag from
+      # https://github.com/jailops/pkgops/releases.
+      # Never use @master in a workflow that holds your signing key.
+      - uses: jailops/pkgops@v0.1.0
+        with:
+          spec: pkgops.yaml
+          # abis: omitted = every ABI in pkgops.yaml (amd64 and aarch64), built in this one step
+          signing-key: ${{ secrets.PKG_SIGNING_KEY }}
+          publish: pages

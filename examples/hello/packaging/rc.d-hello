@@ -1,0 +1,28 @@
+#!/bin/sh
+
+# PROVIDE: hello
+# REQUIRE: NETWORKING
+# KEYWORD: shutdown
+#
+# Add the following to /etc/rc.conf to enable:
+#   hello_enable="YES"
+#   hello_flags="-listen 127.0.0.1:8099"   (optional)
+
+. /etc/rc.subr
+
+name="hello"
+rcvar="hello_enable"
+desc="pkgops example daemon"
+
+load_rc_config $name
+
+: ${hello_enable:="NO"}
+: ${hello_user:="hello"}
+
+pidfile="/var/run/${name}.pid"
+logfile="/var/log/${name}.log"
+procname="/usr/local/bin/hello"
+command="/usr/sbin/daemon"
+command_args="-f -p ${pidfile} -u ${hello_user} -o ${logfile} /usr/local/bin/hello ${hello_flags}"
+
+run_rc_command "$1"

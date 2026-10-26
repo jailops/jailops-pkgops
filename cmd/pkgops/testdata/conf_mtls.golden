@@ -1,0 +1,11 @@
+private: {
+  url: "https://pkg.example.org/${ABI}/latest",
+  signature_type: "pubkey",
+  pubkey: "/usr/local/etc/pkg/keys/private.pub",
+  env: {
+    SSL_CLIENT_CERT_FILE: "/usr/local/etc/pkg/mtls/client.crt",
+    SSL_CLIENT_KEY_FILE: "/usr/local/etc/pkg/mtls/client.key",
+    SSL_CA_CERT_FILE: "/usr/local/etc/pkg/mtls/ca.crt",
+  },
+  enabled: yes
+}

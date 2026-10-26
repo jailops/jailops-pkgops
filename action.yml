@@ -1,0 +1,81 @@
+name: "pkgops: FreeBSD packages"
+description: >
+  Cross-compile a Go program, build native FreeBSD .pkg packages and publish a
+  signed pkg repository to GitHub Pages or GitHub Releases. No FreeBSD runner needed.
+branding:
+  icon: package
+  color: red
+
+inputs:
+  spec:
+    description: Path to the pkgops.yaml manifest.
+    default: pkgops.yaml
+  abis:
+    description: >
+      ABIs to build, comma or space separated (FreeBSD:15:amd64, FreeBSD:15:aarch64).
+      Empty (the default) builds every ABI listed in the manifest (abis:), all in one step.
+    default: ""
+  signing-key:
+    description: >
+      PEM-encoded RSA private key, normally passed from a secret
+      (generate with `pkgops key generate`). Empty publishes an UNSIGNED repository.
+    default: ""
+  publish:
+    description: "pages (update a signed repo on a git branch), release (attach .pkg files to a release) or none."
+    default: pages
+  keep:
+    description: Versions to keep per package on pages (0 = all).
+    default: "5"
+  pages-branch:
+    description: Branch served by GitHub Pages.
+    default: gh-pages
+  tag:
+    description: Release tag for publish=release (default v<version>).
+    default: ""
+  replace:
+    description: Allow overwriting an already published name-version (CI re-runs).
+    default: "false"
+  working-directory:
+    description: Directory containing the manifest and Go module.
+    default: .
+
+runs:
+  using: composite
+  steps:
+    - name: Install pkgops (release binary of this tag, else built from this checkout)
+      shell: bash
+      env:
+        # the ref after @ in `uses: jailops/pkgops@v0.1.0`; a branch or SHA is not a release, so it is built
+        PKGOPS_VERSION: ${{ github.action_ref }}
+        PKGOPS_REPO: ${{ github.action_repository }}
+      run: |
+        set -eu
+        bin=$(sh "${{ github.action_path }}/scripts/install-pkgops.sh" "$RUNNER_TEMP/pkgops-bin" | tail -n 1)
+        echo "$bin" >> "$GITHUB_PATH"
+    - name: Build and publish packages
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        PKGOPS_SPEC: ${{ inputs.spec }}
+        PKGOPS_ABIS: ${{ inputs.abis }}
+        PKGOPS_PUBLISH: ${{ inputs.publish }}
+        PKGOPS_KEEP: ${{ inputs.keep }}
+        PKGOPS_BRANCH: ${{ inputs.pages-branch }}
+        PKGOPS_TAG: ${{ inputs.tag }}
+        PKGOPS_REPLACE: ${{ inputs.replace == 'true' && '1' || '0' }}
+        PKGOPS_SIGNING_KEY_PEM: ${{ inputs.signing-key }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -eu
+        if [ -n "$PKGOPS_SIGNING_KEY_PEM" ]; then
+          umask 077
+          PKGOPS_KEY_FILE="$RUNNER_TEMP/pkgops-signing.key"
+          printf '%s\n' "$PKGOPS_SIGNING_KEY_PEM" > "$PKGOPS_KEY_FILE"
+          export PKGOPS_KEY_FILE
+          trap 'rm -f "$PKGOPS_KEY_FILE"' EXIT
+        fi
+        unset PKGOPS_SIGNING_KEY_PEM
+        # pages push uses the checkout's credentials
+        PKGOPS_REMOTE="$(git config --get remote.origin.url)"
+        export PKGOPS_REMOTE
+        sh "${{ github.action_path }}/scripts/gh-publish.sh"

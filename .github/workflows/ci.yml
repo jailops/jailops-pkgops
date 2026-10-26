@@ -1,0 +1,59 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build and test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: cross-compile the CLI for FreeBSD (compile check only)
+        run: |
+          GOOS=freebsd GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/pkgops
+          GOOS=freebsd GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/pkgops
+      - name: example package builds (no FreeBSD host involved)
+        run: |
+          go build -o "$RUNNER_TEMP/pkgops" ./cmd/pkgops
+          cd examples/hello
+          SOURCE_DATE_EPOCH=1700000000 "$RUNNER_TEMP/pkgops" build --abi FreeBSD:15:amd64 -o "$RUNNER_TEMP/dist"
+          "$RUNNER_TEMP/pkgops" inspect "$RUNNER_TEMP"/dist/FreeBSD:15:amd64/hello-0.1.0.pkg
+
+  web:
+    name: web UI (build, unit tests, e2e)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: embedded UI is up to date (commit the result of npm run build)
+        working-directory: .
+        run: git diff --exit-code -- internal/webui/dist
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e

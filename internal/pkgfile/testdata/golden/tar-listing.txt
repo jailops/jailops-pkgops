@@ -1,0 +1,6 @@
++COMPACT_MANIFEST 0 root:wheel 0644 1970-01-01T00:00:00Z
++MANIFEST 0 root:wheel 0644 1970-01-01T00:00:00Z
+/usr/local/bin/hello 0 root:wheel 0755 2023-11-14T22:13:20Z
+/usr/local/etc/hello/hello.conf 0 root:wheel 0644 2023-11-14T22:13:20Z
+/usr/local/etc/rc.d/hello 0 root:wheel 0555 2023-11-14T22:13:20Z
+/var/db/hello/ 5 hello:hello 0750 2023-11-14T22:13:20Z

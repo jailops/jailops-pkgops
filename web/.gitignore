@@ -1,0 +1,5 @@
+node_modules/
+e2e/.results/
+e2e/.env.json
+e2e/screenshots/
+test-results/

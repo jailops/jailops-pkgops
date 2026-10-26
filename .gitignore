@@ -1,0 +1,11 @@
+/dist/
+/build/
+/repo/
+*.key
+!testdata/**/*.key
+.DS_Store
+examples/*/build/
+examples/*/dist/
+temp/
+/cmd/pkgops/pkgops
+/bin/
