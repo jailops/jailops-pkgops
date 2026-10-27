@@ -57,5 +57,18 @@ jobs:
       - name: embedded UI is up to date (commit the result of npm run build)
         working-directory: .
         run: git diff --exit-code -- internal/webui/dist
+      # Playwright's system packages (libraries and fonts) come from an apt mirror that is sometimes slow: retry, and keep the
+      # downloaded packages between runs, so the install only has to unpack them.
+      - name: Prepare apt for Playwright
+        run: |
+          echo 'Acquire::Retries "5";' | sudo tee /etc/apt/apt.conf.d/80-retries >/dev/null
+          sudo chown -R "$USER" /var/cache/apt/archives
+      - name: Cache the apt packages and the Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/cache/apt/archives
+            ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-v1-${{ hashFiles('web/package-lock.json') }}
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
