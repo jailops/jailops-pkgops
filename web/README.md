@@ -5,7 +5,7 @@ Vue 3 + TypeScript + Vite. Optional: `pkgops serve` works fully without it.
 | Command | Does |
 |---|---|
 | `npm ci` | install |
-| `npm run dev` | dev server on :5173, `/api` proxied to `PKGOPS_API` (default http://127.0.0.1:8080) |
+| `npm run dev` | dev server on :5173, `/api` proxied to `PKGOPS_API` (default http://127.0.0.1:39112) |
 | `npm run build` | typecheck and build into `../internal/webui/dist` (embedded into the Go binary; commit the result) |
 | `npm test` | vitest: API client (incl. admin calls), session (token memory only, Access probe), router, formatters, dialogs, `manage.ts` logic (filters, bulk selection, confirmation gating, state/phase mapping), Manage view polling |
 | `npm run e2e` | Playwright against a real seeded registry (builds `pkgops`, signs a repo, runs `pkgops serve`); desktop light/dark and phone, with an accessibility audit (`e2e/a11y.ts`) that also covers the Manage view and its dialogs. `e2e/manage.spec.ts` uses the real local registry for the manual-mode cleanup; GitHub mode, Access identities and the archive use `page.route()` mocks (`e2e/mock.ts`, named "mocked API" in the test titles) |

@@ -110,7 +110,7 @@ bob@example.com     viewer
 ```sh
 export PKGOPS_GITHUB_APP_ID=123456 PKGOPS_GITHUB_INSTALLATION_ID=7654321
 export PKGOPS_GITHUB_KEY_FILE=/usr/local/etc/pkgops/app.pem      # chmod 600
-pkgops serve --listen 127.0.0.1:8080 \
+pkgops serve --ui --listen 127.0.0.1:39112 \
   --source https://pkg.example.org \
   --prune-via github:jailops/jailops-packages@master:prune.yaml \
   --workflow publish.yml --archive \
@@ -119,7 +119,7 @@ pkgops serve --listen 127.0.0.1:8080 \
 ```
 
 Without `--prune-via` the service still shows everything and cleanup requests
-become manual steps. `--no-ui` serves the API only.
+become manual steps. The web UI is off by default: add `--ui` to serve it (the admin UI needs it).
 
 ## The permanent archive (GitHub Releases)
 

@@ -50,7 +50,7 @@ The local-directory path is verified (tests); the rsync path is **UNVERIFIED**
 pkgops serve token --name ci --role uploader     # prints a secret and a token-file line
 pkgops serve token --name alice --role admin
 # put the printed "name role sha256" lines into the token file, then:
-pkgops serve --repo /var/pkg --listen 127.0.0.1:8080 \
+pkgops serve --repo /var/pkg --listen 127.0.0.1:39112 \
      --token-file tokens --key repo.key --sign pubkey --keep 5
 pkgops registry upload --url https://pkg.example.org --token "$PKGOPS_TOKEN" dist/*/*.pkg
 pkgops registry status --url https://pkg.example.org
@@ -92,7 +92,7 @@ cleaned by the next operation. It is not one transaction across files: a client
 that read the catalog just before a delete may get a 404 for the removed file
 and recovers on its next `pkg update`. Single writer process only.
 
-**Web UI** (`/ui/`, on by default, `--no-ui` to disable): overview (health,
+**Web UI** (`/ui/`, in the binary and off by default, `--ui` to serve it): overview (health,
 counts, platforms), package search and detail (files, symlinks, config files,
 dependencies, versions), repository status (signature, fingerprint, per-catalog
 consistency, damage reported in words), sign-in with a token kept in memory

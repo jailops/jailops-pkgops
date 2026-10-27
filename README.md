@@ -206,7 +206,7 @@ pkgops verify  <repo-dir> [--pubkey repo.pub]
 pkgops publish --from DIR --to DEST [--delete] [--ssh "ssh -i key"]
 pkgops conf    --name NAME --url URL [--pubkey PATH | --fingerprints DIR] [--client-cert P --client-key P [--ca-cert P]]
 pkgops pki     init | issue server|client | revoke | list | crl | show      private CA for a private registry
-pkgops serve   --repo DIR [--listen ADDR|unix:PATH] [--token-file F] [--key K] [--keep N] [--no-ui]
+pkgops serve   --repo DIR [--listen ADDR|unix:PATH] [--token-file F] [--key K] [--keep N] [--ui]
                [--tls-cert F --tls-key F [--client-ca F [--crl F]]]        HTTPS, optionally mTLS-only
 pkgops serve   --source URL [--prune-via github:OWNER/REPO[@branch]:prune.yaml] [--workflow publish.yml]
                [--access-team T --access-aud A --access-allow FILE]   admin UI over a published site

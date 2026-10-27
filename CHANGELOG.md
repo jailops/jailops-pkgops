@@ -8,6 +8,7 @@ and `.goreleaser.yaml` publishes the GitHub release notes from the commits.
 
 ### Changed
 - Releases are PR-based: `just release-pr X.Y.Z` opens the version PR, `just release X.Y.Z` signs and pushes the tag after the merge. The repository is `jailops/jailops-pkgops` (the Go module path stays `jailops.net/pkgops`).
+- **`pkgops serve` listens on port 39112 by default** (it was 8080), the port of the JailOps family (39110 to 39112, see docs/ports.md of jailops). **The web UI is in the binary and off until you add `--ui`** (it was on, with `--no-ui` to turn it off).
 
 ## [0.1.0] - 2026-10-26
 
