@@ -81,7 +81,7 @@ usage:
   pkgops push    --url URL --token T file.pkg ...   upload to a running 'pkgops serve'
   pkgops serve   token --name NAME [--role viewer|uploader|admin]
   pkgops registry status|list|show|upload|delete --url URL [--token T]   (client of a running registry)
-  pkgops serve   --repo DIR [--listen :8080|unix:/path.sock] [--token-file FILE] [--key repo.key]
+  pkgops serve   --repo DIR [--listen :39112|unix:/path.sock] [--token-file FILE] [--key repo.key]
                  [--tls-cert F --tls-key F [--client-ca F [--crl F]]]
   pkgops serve   --source URL [--prune-via github:OWNER/REPO[@branch]:prune.yaml] [--access-team T --access-aud A --access-allow FILE]
   pkgops version

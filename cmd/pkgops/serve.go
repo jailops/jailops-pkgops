@@ -34,7 +34,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	}
 	fs := newFlags("serve")
 	dir := fs.String("repo", "repo", "repository root directory")
-	listen := fs.String("listen", "127.0.0.1:8080", "listen address, or unix:/path/to.sock (plain HTTP behind nginx)")
+	listen := fs.String("listen", "127.0.0.1:39112", "listen address, or unix:/path/to.sock (plain HTTP behind a proxy; TLS with --tls-cert)")
 	socketMode := fs.String("socket-mode", "0660", "file mode of a unix socket (octal)")
 	tlsCert := fs.String("tls-cert", "", "serve HTTPS with this certificate (PEM; reloaded when the file changes)")
 	tlsKey := fs.String("tls-key", "", "private key of --tls-cert")
@@ -47,7 +47,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	keep := fs.Int("keep", 0, "retain only the newest N versions per package (0 = all)")
 	files := fs.Bool("files-list", false, "also write files.pkg")
 	max := fs.Int64("max-upload-mb", 512, "maximum upload size in MiB")
-	noUI := fs.Bool("no-ui", false, "do not serve the web UI at /ui/")
+	webUI := fs.Bool("ui", false, "serve the web UI at /ui/ (it is in the binary and off by default)")
 	policyFile := fs.String("policy", "", "repository policy (default: pkgops-repo.yaml in --repo)")
 	src := fs.String("source", "", "read-through mode: the published site URL (read-only; instead of --repo)")
 	pruneVia := fs.String("prune-via", "", "how cleanup requests are carried out: github:OWNER/REPO[@branch]:prune.yaml (default: show the manual steps)")
@@ -80,7 +80,7 @@ func cmdServe(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg := serve.Config{Keep: *keep, MaxUpload: *max << 20, UI: !*noUI}
+	cfg := serve.Config{Keep: *keep, MaxUpload: *max << 20, UI: *webUI}
 	adm := &admin.Service{Workflow: *workflow}
 	if *src != "" {
 		if !strings.HasPrefix(*src, "https://") && !strings.HasPrefix(*src, "http://") {

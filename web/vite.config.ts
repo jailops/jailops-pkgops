@@ -16,7 +16,7 @@ const keepPlaceholder = () => ({
 
 // During development the UI runs on its own port and the registry API and the
 // repository tree are proxied to a running `pkgops serve` (PKGOPS_API).
-const target = process.env.PKGOPS_API || 'http://127.0.0.1:8080'
+const target = process.env.PKGOPS_API || 'http://127.0.0.1:39112'
 
 export default defineConfig({
   base: '/ui/',
