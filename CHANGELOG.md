@@ -6,6 +6,9 @@ and `.goreleaser.yaml` publishes the GitHub release notes from the commits.
 
 ## [Unreleased]
 
+### Changed
+- Releases are PR-based: `just release-pr X.Y.Z` opens the version PR, `just release X.Y.Z` signs and pushes the tag after the merge. The repository is `jailops/jailops-pkgops` (the Go module path stays `jailops.net/pkgops`).
+
 ## [0.1.0] - 2026-10-26
 
 ### Added

@@ -4,21 +4,23 @@ Releases are cut straight on `master`: no pull request, no release branch.
 
 ## Cut a release
 
+The flow is PR-based, as in the other JailOps repositories:
+
 ```sh
-just release v0.1.0       # tags and pushes in a fraction of a second; CI does the testing and the building
-just release-dry v0.1.0   # optional: the full local check set, changes and pushes nothing
+just release-pr 0.2.0     # branch release/v0.2.0: version.txt and the CHANGELOG.md section, and a pull request
+# review, CI, merge the PR
+just release 0.2.0        # master carries 0.2.0: signs the tag v0.2.0 and pushes it
 ```
 
-`just release` (`scripts/release.sh`) refuses unless: the tree is clean, the branch is `master` and not behind
-`origin/master`, `vX.Y.Z[-pre]` is valid semver and the tag exists neither locally nor on origin, and
-`CHANGELOG.md` has a non-empty `## [Unreleased]`. It does **not** run the tests: it writes `version.txt` (bare
-`0.1.0`, as in the other JailOps projects), moves the Unreleased entries under `## [0.1.0] - DATE`, commits
-`Release v0.1.0`, creates the annotated tag and runs `git push --atomic origin master refs/tags/v0.1.0`. The tag
-starts the release workflow, which runs gofmt, `go vet` and `go test -race` on the tagged commit **before**
-GoReleaser publishes anything, so a broken commit never becomes a release (the CI on `master` has already run the same
-checks and the web tests on every push). `just release-dry` (or `CHECKS=1 just release ...`) runs the full local set
-(gofmt, vet, tests, the web checks and a clean `git archive` build) if you want it before tagging. If the web UI
-sources changed, run `just web` and commit `internal/webui/dist` first. Write the Unreleased notes before releasing.
+`release-pr` takes a bare `X.Y.Z` (it adds the `v`), refuses a dirty tree, an empty `## Unreleased` section in
+`CHANGELOG.md`, and a version that master already has. It moves the Unreleased entries under `## X.Y.Z - DATE` (keeping
+an empty Unreleased on top) and opens the PR with `gh`. `release` checks out and fast-forwards master, requires
+`version.txt` and the CHANGELOG section to say the version, refuses an existing tag, signs the tag (`git tag -s`, so a
+signing key must be configured) and pushes it. It runs no tests: the tag starts the release workflow, which checks the
+tagged commit before GoReleaser publishes anything, and CI has already run the tests on the PR and on master.
+
+The very first release has nothing to PR: `version.txt` and the changelog section already say the version, so run
+`just release 0.1.0` directly. Write the Unreleased notes before opening a release PR.
 
 ## What the workflow does
 
