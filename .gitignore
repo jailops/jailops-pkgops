@@ -9,3 +9,4 @@ examples/*/dist/
 temp/
 /cmd/pkgops/pkgops
 /bin/
+/pkgops
