@@ -10,6 +10,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  maxFailures: 3, // a broken setup should cost seconds, not one timeout per test
   timeout: 30_000,
   reporter: [['list']],
   use: { testIdAttribute: 'data-test', trace: 'retain-on-failure' },

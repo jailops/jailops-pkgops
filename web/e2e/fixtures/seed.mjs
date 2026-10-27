@@ -84,12 +84,17 @@ export async function start() {
   writeFileSync(tokens, [`vera viewer ${sha(secrets.viewer)}`, `ursula uploader ${sha(secrets.uploader)}`, `alice admin ${sha(secrets.admin)}`].join('\n') + '\n')
 
   const port = await freePort()
-  const child = spawn(bin, ['serve', '--repo', repo, '--listen', `127.0.0.1:${port}`, '--token-file', tokens, '--key', key], { stdio: ['ignore', 'inherit', 'inherit'] })
+  const child = spawn(bin, ['serve', '--ui', '--repo', repo, '--listen', `127.0.0.1:${port}`, '--token-file', tokens, '--key', key], { stdio: ['ignore', 'inherit', 'inherit'] })
   const base = `http://127.0.0.1:${port}`
-  for (let i = 0; i < 100; i++) {
-    try { if ((await fetch(`${base}/api/v1/health`)).ok) break } catch { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 100))
+  let up = false
+  for (let i = 0; i < 100 && !up; i++) {
+    try { up = (await fetch(`${base}/api/v1/health`)).ok } catch { /* not up yet */ }
+    if (!up) await new Promise((r) => setTimeout(r, 100))
   }
+  // fail here, in a second, instead of letting every test wait for a page that is never served
+  if (!up) { child.kill('SIGTERM'); throw new Error(`pkgops serve did not answer on ${base}`) }
+  const ui = await fetch(`${base}/ui/`).catch(() => null)
+  if (!ui || !ui.ok) { child.kill('SIGTERM'); throw new Error(`pkgops serve does not serve the web UI at ${base}/ui/ (status ${ui?.status}): is --ui set, and is the UI built into the binary?`) }
   return {
     dir, base, bin, repo, fingerprint, pkgs, secrets, key,
     spec: (name, v, abi) => specs[name](v, abi),
