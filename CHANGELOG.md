@@ -6,6 +6,8 @@ and `.goreleaser.yaml` publishes the GitHub release notes from the commits.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-02
+
 ### Security
 - `pkgops fetch --pubkey repo.pub [--pubkey-sha256 HEX]` verifies the published site's signed catalogs (`data.pkg`
   and `packagesite.pkg`) against a key from a trusted place before it writes anything, and refuses an unsigned
