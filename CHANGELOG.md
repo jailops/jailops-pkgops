@@ -6,6 +6,37 @@ and `.goreleaser.yaml` publishes the GitHub release notes from the commits.
 
 ## [Unreleased]
 
+### Security
+- `pkgops fetch --pubkey repo.pub [--pubkey-sha256 HEX]` verifies the published site's signed catalogs (`data.pkg`
+  and `packagesite.pkg`) against a key from a trusted place before it writes anything, and refuses an unsigned
+  index that disagrees with them: a changed newest package, an entry the catalog does not advertise, a version above
+  the advertised one, a prune that would make an unsigned version the newest. Before, the baseline that the next
+  `pkgops repo --key` signs was checked only against the unsigned `pkgops-index.json` of the same site. Older
+  versions remain covered by no signature (the catalog lists the newest only); limits and a design note for a
+  signed index are in `docs/hosting.md`, "Verified baseline". Without `--pubkey` nothing changes.
+- Downloads by `pkgops fetch` stop at the expected size (a longer body fails at once and leaves nothing behind),
+  check `Content-Length` and the `Content-Range` of a resumed download, and have an idle timeout (60 s) and an
+  overall deadline scaled to the size. Archive downloads stop at the size their manifest lists.
+
+### Fixed
+- `pkgops serve --source`: the status was "Healthy" and "Signed" without any verified signature when the site
+  publishes its key under another name than `pkgops.pub`, or the key was missing or invalid. It now checks both
+  catalogs and reports `verification` (`verified`, `unverified`, `invalid`, `unsigned`, `signed`), the key's
+  fingerprint and where the key came from. The key is `--pubkey FILE`, a site key pinned by `--key-fingerprint`,
+  or the first of `pkgops.pub`, `jailops.pub`, `repo.pub` on the site (`--key-path`), the last shown as a weaker
+  trust. `--require-verified` (implied by the first two) makes anything but `verified` unhealthy.
+- `pkgops serve`: the cached verification of the status page now depends on the sha256 of every package, so a
+  package replaced by other bytes of the same name and version shows at once; a cached result is also re-checked
+  after 10 minutes.
+- Web UI: the client configuration used the address of the admin server, which in `--source` mode does not serve
+  the repository. The API now returns `download_url` and `key_url` (`--download-url`, `--key-url`; default the
+  `--source` site), the UI uses them, and shows upload steps only where uploads go to this server.
+
+### Added
+- `scripts/check-actions-pinned.sh` and a CI step: third-party actions must be pinned to a commit SHA (warning
+  until `ACTIONS_PIN_ENFORCE` in `ci.yml` is `"1"`). `docs/supply-chain.md` has the commands. `release.yml` grants
+  `contents: write` to its one job only.
+
 ## [0.2.0] - 2026-10-27
 
 ### Changed

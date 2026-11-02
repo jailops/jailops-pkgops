@@ -57,9 +57,23 @@ func cmdServe(ctx context.Context, args []string) error {
 	team := fs.String("access-team", "", "Cloudflare Access team name (enables Access authentication)")
 	aud := fs.String("access-aud", "", "Cloudflare Access application audience (AUD tag)")
 	allow := fs.String("access-allow", "", "allow-list file: one \"identity role\" per line (role: viewer, uploader, admin)")
+	srcPub := fs.String("pubkey", "", "with --source: the public key (PEM) the site's catalogs must verify against; without it the key is read from the site itself (weaker)")
+	srcFP := fs.String("key-fingerprint", "", "with --source: the sha256 the site's public key file must have (pins a key read from the site)")
+	keyPaths := fs.String("key-path", "", "with --source: where the site publishes its public key, comma separated (default "+strings.Join(source.DefaultKeyPaths, ",")+")")
+	requireVerified := fs.Bool("require-verified", false, "with --source: unhealthy unless every catalog verifies against a key (implied by --pubkey and --key-fingerprint)")
+	downloadURL := fs.String("download-url", "", "the base URL clients install from, shown in the client configuration (default: --source, or the address of this server)")
+	keyURL := fs.String("key-url", "", "where clients download the public key (default: the key found on the --source site, else /api/v1/key)")
 	gh := addGHFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *src == "" && (*srcPub != "" || *srcFP != "" || *keyPaths != "" || *requireVerified) {
+		return errors.New("--pubkey, --key-fingerprint, --key-path and --require-verified apply to --source only (a local repository is checked against its own --key)")
+	}
+	for _, u := range []string{*downloadURL, *keyURL} {
+		if u != "" && !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "/") {
+			return fmt.Errorf("%q: --download-url and --key-url must be http(s) URLs", u)
+		}
 	}
 	if *src != "" {
 		explicit := false
@@ -80,13 +94,23 @@ func cmdServe(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg := serve.Config{Keep: *keep, MaxUpload: *max << 20, UI: *webUI}
+	cfg := serve.Config{Keep: *keep, MaxUpload: *max << 20, UI: *webUI, DownloadURL: *downloadURL, KeyURL: *keyURL}
 	adm := &admin.Service{Workflow: *workflow}
 	if *src != "" {
 		if !strings.HasPrefix(*src, "https://") && !strings.HasPrefix(*src, "http://") {
 			return errors.New("--source must be an http(s) URL")
 		}
-		cfg.Source = &source.Source{Base: *src}
+		cfg.Source = &source.Source{Base: *src, KeyFingerprint: strings.TrimSpace(*srcFP), RequireVerified: *requireVerified, KeyPaths: splitABIs(*keyPaths)}
+		if *srcPub != "" {
+			b, err := os.ReadFile(*srcPub)
+			if err != nil {
+				return err
+			}
+			if _, err := pkgops.ParseRSAPublicKey(b); err != nil {
+				return fmt.Errorf("--pubkey %s: %w", *srcPub, err)
+			}
+			cfg.Source.PubKey = b
+		}
 		*dir = ""
 	} else {
 		cfg.Repo = &pkgops.Repository{Root: *dir, Signer: signer, FileList: *files}

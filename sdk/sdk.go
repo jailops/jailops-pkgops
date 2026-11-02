@@ -89,6 +89,8 @@ type ABIStatus struct {
 	Signature  string    `json:"signature"`
 	Consistent bool      `json:"consistent"`
 	Problem    string    `json:"problem,omitempty"`
+	// Verification is this ABI's state, see [Status.Verification].
+	Verification string `json:"verification,omitempty"`
 }
 
 // Status is the repository overview.
@@ -104,6 +106,33 @@ type Status struct {
 	Uploads     bool        `json:"uploads"` // the registry accepts authenticated writes
 	Keep        int         `json:"keep"`    // retention (0 = keep all)
 	Channel     string      `json:"channel"`
+	// Verification says what Signature is worth: "verified" (every catalog
+	// verified against the key, see KeySource), "signed" (signatures are
+	// present but were not checked), "unverified" (signed, but there is no
+	// key to check them with), "invalid" (a bad key, or a signature that
+	// does not verify) or "unsigned".
+	Verification string `json:"verification"`
+	// KeySource is where the key came from: "configured" (the server's own
+	// configuration, or a site key that matched the configured fingerprint),
+	// "site" (read from the same site as the catalogs: a weaker trust),
+	// "signer" (the registry's signing key) or empty.
+	KeySource string `json:"key_source,omitempty"`
+	// Notes are remarks that do not make the repository unhealthy.
+	Notes []string `json:"notes,omitempty"`
+	// Mode is "local" (this server serves the repository) or "source" (a
+	// read-through view of a site published elsewhere).
+	Mode string `json:"mode,omitempty"`
+	// ServesRepository is true when this server itself serves the
+	// repository files (local mode).
+	ServesRepository bool `json:"serves_repository"`
+	// DownloadURL is the base URL clients install from (url: in pkg's
+	// repository configuration, without /${ABI}/CHANNEL); empty when the
+	// server cannot know it (local mode without a configured URL: the
+	// address the server is reached at).
+	DownloadURL string `json:"download_url,omitempty"`
+	// KeyURL is where clients download the public key; a relative URL is on
+	// this server.
+	KeyURL string `json:"key_url,omitempty"`
 }
 
 // Session describes the token a request was made with.

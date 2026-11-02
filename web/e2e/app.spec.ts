@@ -64,10 +64,11 @@ test('package detail: files with symlink and config marker, dependencies, versio
 test('repository status: signature, fingerprint, consistency and damage detection', async ({ page }) => {
   await open(page, '#/status')
   await expect(page.getByTestId('health')).toContainText('Healthy')
-  await expect(page.getByTestId('sig')).toHaveText('Signed')
+  await expect(page.getByTestId('sig')).toHaveText('Verified')
+  await expect(page.getByTestId('key-source')).toHaveText("this server's signing key")
   await expect(page.getByTestId('fingerprint')).toHaveText(env().fingerprint)
   await expect(page.getByTestId('catalogs').locator('tbody tr')).toHaveCount(2)
-  await expect(page.getByRole('link', { name: 'Download repo.pub' })).toHaveAttribute('href', '/api/v1/key')
+  await expect(page.getByTestId('key-link')).toHaveAttribute('href', '/api/v1/key')
 
   // damage a package behind the registry's back: the page must say so, in words
   const fs = await import('node:fs')

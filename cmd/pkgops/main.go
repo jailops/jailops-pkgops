@@ -70,6 +70,7 @@ usage:
   pkgops repo    [--repo DIR] [--key repo.key] [--sign pubkey|fingerprints] [--files-list]
                  [--policy pkgops-repo.yaml] [--prune prune.yaml] [dist-dir | file.pkg ...]
   pkgops fetch   --from URL|github-releases:OWNER/REPO --into DIR [--abi a,b] [--prune prune.yaml] [--source pages|releases|auto]
+                 [--pubkey repo.pub [--pubkey-sha256 HEX]]        verify the site's signed catalogs first
   pkgops prune   --plan [--from URL|DIR] [--manifest prune.yaml] [--keep N | --older-than 90d | --name N --version V] [-n]
   pkgops archive push --repo OWNER/REPO [--from DIR]      keep every published .pkg in GitHub Releases
   pkgops archive prune --repo OWNER/REPO --abi A --name N --version V --reason R --confirm "delete from archive"
@@ -81,9 +82,11 @@ usage:
   pkgops push    --url URL --token T file.pkg ...   upload to a running 'pkgops serve'
   pkgops serve   token --name NAME [--role viewer|uploader|admin]
   pkgops registry status|list|show|upload|delete --url URL [--token T]   (client of a running registry)
-  pkgops serve   --repo DIR [--listen :39112|unix:/path.sock] [--token-file FILE] [--key repo.key]
+  pkgops serve   --repo DIR [--listen :39112|unix:/path.sock] [--token-file FILE] [--key repo.key] [--download-url URL]
                  [--tls-cert F --tls-key F [--client-ca F [--crl F]]]
-  pkgops serve   --source URL [--prune-via github:OWNER/REPO[@branch]:prune.yaml] [--access-team T --access-aud A --access-allow FILE]
+  pkgops serve   --source URL [--pubkey repo.pub | --key-fingerprint HEX] [--key-path NAME] [--require-verified]
+                 [--download-url URL] [--key-url URL]
+                 [--prune-via github:OWNER/REPO[@branch]:prune.yaml] [--access-team T --access-aud A --access-allow FILE]
   pkgops version
 `
 

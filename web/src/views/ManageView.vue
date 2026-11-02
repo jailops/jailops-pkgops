@@ -135,7 +135,16 @@ const report = computed(() => ov.value?.archive.report)
 const problemCount = computed(() => (report.value ? report.value.on_pages_not_archived.length + report.value.archived_not_on_pages.length + report.value.mismatched.length : 0))
 const tone = (t: string) => (t ? ' ' + t : '')
 const runTone = (r: { status: string; conclusion?: string }) => (r.status !== 'completed' ? 'info' : r.conclusion === 'success' ? 'ok' : 'danger')
-const sigText = computed(() => ({ pubkey: 'Signed (public key)', fingerprints: 'Signed (fingerprints)', unsigned: 'Not signed' })[ov.value?.status?.signature ?? 'unsigned'])
+const sigText = computed(() => {
+  const st = ov.value?.status
+  const kind = ({ pubkey: 'Signed (public key)', fingerprints: 'Signed (fingerprints)', unsigned: 'Not signed' })[st?.signature ?? 'unsigned']
+  switch (st?.verification) {
+    case 'verified': return `${kind}, verified${st.key_source === 'site' ? ' with the key on the same site' : ''}`
+    case 'invalid': return `${kind}, does NOT verify`
+    case 'unverified': case 'signed': return `${kind}, not verified`
+  }
+  return kind
+})
 </script>
 
 <template>

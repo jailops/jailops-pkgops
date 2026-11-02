@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Third-party actions must be pinned to a commit SHA (docs/supply-chain.md). "0" only warns; set "1" once the
+  # pins are in, and an unpinned third-party action fails the build.
+  ACTIONS_PIN_ENFORCE: "0"
+
 jobs:
   test:
     name: build and test (Linux)
@@ -19,6 +24,8 @@ jobs:
           go-version-file: go.mod
       - name: No binaries in git
         run: sh scripts/no-binaries.sh
+      - name: Third-party actions pinned to a commit SHA
+        run: sh scripts/check-actions-pinned.sh
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...

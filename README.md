@@ -198,6 +198,7 @@ pkgops key     generate | public | fingerprint
 pkgops repo    [--repo DIR] [--key repo.key] [--sign pubkey|fingerprints]
                [--files-list] [--replace] [--policy pkgops-repo.yaml] [--prune prune.yaml] [file.pkg ...]
 pkgops fetch   --from URL|github-releases:OWNER/REPO --into DIR [--abi a,b] [--prune prune.yaml]
+               [--pubkey repo.pub]          verify the site's signed catalogs before taking the baseline
 pkgops prune   --plan [--from URL|DIR] [--manifest prune.yaml] [--keep N | --older-than 90d | --name N --version V] [-n]
 pkgops archive push --repo OWNER/REPO         archive every published .pkg in GitHub Releases
 pkgops archive prune --repo OWNER/REPO ...    delete from the archive (separate, confirmed, audited)
@@ -208,7 +209,8 @@ pkgops conf    --name NAME --url URL [--pubkey PATH | --fingerprints DIR] [--cli
 pkgops pki     init | issue server|client | revoke | list | crl | show      private CA for a private registry
 pkgops serve   --repo DIR [--listen ADDR|unix:PATH] [--token-file F] [--key K] [--keep N] [--ui]
                [--tls-cert F --tls-key F [--client-ca F [--crl F]]]        HTTPS, optionally mTLS-only
-pkgops serve   --source URL [--prune-via github:OWNER/REPO[@branch]:prune.yaml] [--workflow publish.yml]
+pkgops serve   --source URL [--pubkey repo.pub | --key-fingerprint HEX] [--require-verified] [--download-url URL]
+               [--prune-via github:OWNER/REPO[@branch]:prune.yaml] [--workflow publish.yml]
                [--access-team T --access-aud A --access-allow FILE]   admin UI over a published site
 pkgops serve   token --name NAME [--role viewer|uploader|admin]
 pkgops registry status|list|show|upload|delete --url URL [--token T]
@@ -228,7 +230,11 @@ Published sites keep every version: `pkgops repo` writes `pkgops-index.json` nex
 the pkg catalog (the catalog still lists only the newest version, as pkg expects),
 `pkgops fetch` rebuilds the baseline from it, and `pkgops prune --plan` writes a
 reviewed `prune.yaml` that the next build applies. Nothing is ever deleted by
-itself. See [docs/hosting.md](docs/hosting.md) and [docs/admin.md](docs/admin.md).
+itself. The index is not signed: give `pkgops fetch` your public key (`--pubkey`)
+so the newest packages, the ones the next run signs again, are checked against the
+site's signed catalogs first ("Verified baseline" in [docs/hosting.md](docs/hosting.md)).
+See [docs/hosting.md](docs/hosting.md), [docs/admin.md](docs/admin.md) and, for CI,
+[docs/supply-chain.md](docs/supply-chain.md).
 
 ## Go SDK
 

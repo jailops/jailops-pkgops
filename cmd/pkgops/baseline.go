@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"jailops.net/pkgops"
 	"jailops.net/pkgops/internal/archive"
 	"jailops.net/pkgops/internal/fetch"
 	"jailops.net/pkgops/internal/index"
@@ -33,6 +34,8 @@ func cmdFetch(ctx context.Context, args []string) error {
 	abis := fs.String("abi", "", "limit to these ABIs (comma separated)")
 	pruneFile := fs.String("prune", "", "prune manifest: listed files are not fetched")
 	source := fs.String("source", "auto", "pages, releases or auto (pages, then the archive when the site has no baseline)")
+	pubkey := fs.String("pubkey", "", "verify the site's signed catalogs with this public key (from a trusted place, not the site) before anything is fetched")
+	pubSum := fs.String("pubkey-sha256", "", "with --pubkey: refuse the key unless its file has this sha256 (the fingerprint)")
 	gh := addGHFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -48,6 +51,19 @@ func cmdFetch(ctx context.Context, args []string) error {
 		}
 	}
 	o := fetch.Options{Into: *into, ABIs: splitABIs(*abis), Prune: m, Log: os.Stderr}
+	if *pubSum != "" && *pubkey == "" {
+		return errors.New("--pubkey-sha256 needs --pubkey")
+	}
+	if *pubkey != "" {
+		key, err := os.ReadFile(*pubkey)
+		if err != nil {
+			return err
+		}
+		if fp := pkgops.Fingerprint(key); *pubSum != "" && !strings.EqualFold(fp, strings.TrimSpace(*pubSum)) {
+			return fmt.Errorf("%s has sha256 %s, not the expected %s: refusing that key", *pubkey, fp, *pubSum)
+		}
+		o.TrustedKey = key
+	}
 	archiveRepo, isArchive := strings.CutPrefix(*from, "github-releases:")
 	siteURL := *from
 	if isArchive {
@@ -86,6 +102,9 @@ func cmdFetch(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		if o.TrustedKey != nil {
+			fmt.Fprintln(os.Stderr, "note: the archive (GitHub Releases) has no signed catalog: --pubkey does not apply to it; it is trusted as far as the GitHub repository is")
+		}
 		res, err = (&archive.Archive{GH: c, Log: os.Stderr}).Fetch(ctx, o)
 		if err != nil {
 			return err
@@ -93,6 +112,9 @@ func cmdFetch(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("baseline from %s: %d downloaded, %d already present, %d pruned (skipped), %d bytes -> %s\n",
 		res.Source, res.Downloaded, res.Reused, res.Pruned, res.Bytes, *into)
+	if o.TrustedKey != nil && res.Source == "pages" {
+		fmt.Printf("signed state verified: %d file(s) match the signed catalogs, %d older version(s) have no signature (index only)\n", res.Signed, res.Unsigned)
+	}
 	return nil
 }
 
