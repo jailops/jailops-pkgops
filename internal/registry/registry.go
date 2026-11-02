@@ -6,6 +6,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +27,11 @@ type Registry struct {
 	Keep int
 	// Uploads reports whether writes are enabled (informational for status).
 	Uploads bool
+	// VerifyEvery bounds how long a cached verification result is used even
+	// when nothing seems to have changed (default 10 min).
+	VerifyEvery time.Duration
+	// Now is the clock (tests).
+	Now func() time.Time
 
 	mu    sync.Mutex
 	cache map[string]cachedCheck
@@ -33,7 +39,22 @@ type Registry struct {
 
 type cachedCheck struct {
 	key string
+	at  time.Time
 	err error
+}
+
+func (r *Registry) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
+}
+
+func (r *Registry) verifyEvery() time.Duration {
+	if r.VerifyEvery > 0 {
+		return r.VerifyEvery
+	}
+	return 10 * time.Minute
 }
 
 // New returns a registry over repo.
@@ -206,8 +227,11 @@ func (r *Registry) signatureKind() string {
 
 // Status verifies every ABI's repository the way a client would (signature,
 // both catalogs, every advertised package present with matching checksum) and
-// summarises it. Verification reads all packages, so results are cached until a
-// catalog file changes.
+// summarises it. The result is cached per ABI under a key of the catalog
+// files' metadata and the sha256 of every package the scan just read (the
+// scan hashes each file anyway), so a package swapped for other bytes of the
+// same name and version is verified again at once; a cached result is also
+// dropped after VerifyEvery.
 func (r *Registry) Status() (*sdk.Status, error) {
 	abis, err := r.Repo.ABIs()
 	if err != nil {
@@ -218,6 +242,14 @@ func (r *Registry) Status() (*sdk.Status, error) {
 		Channel: r.channel(), ABIs: []sdk.ABIStatus{}}
 	if pem != nil {
 		st.Fingerprint = repository.Fingerprint(pem)
+		st.KeySource = "signer"
+	}
+	st.Verification = "unsigned"
+	switch {
+	case pem != nil:
+		st.Verification = "verified"
+	case r.Repo.Signer != nil:
+		st.Verification = "signed" // a signer pkgops cannot take the public key from
 	}
 	for _, a := range abis {
 		parsed, _ := pkgfile.ParseABI(a)
@@ -241,13 +273,19 @@ func (r *Registry) Status() (*sdk.Status, error) {
 				}
 			}
 		}
-		key += fmt.Sprintf("n=%d,bad=%d", len(infos), len(bad))
+		key += fmt.Sprintf("n=%d,bad=%d;", len(infos), len(bad))
+		for _, i := range infos {
+			key += i.Filename() + "=" + i.SHA256 + ";"
+		}
+		for _, p := range bad {
+			key += p.File + "=?;"
+		}
 		r.mu.Lock()
 		c, ok := r.cache[a]
 		r.mu.Unlock()
-		if !ok || c.key != key {
+		if now := r.now(); !ok || c.key != key || now.Sub(c.at) >= r.verifyEvery() || now.Before(c.at) {
 			_, verr := repository.VerifyRepository(dir, pem)
-			c = cachedCheck{key: key, err: verr}
+			c = cachedCheck{key: key, at: now, err: verr}
 			r.mu.Lock()
 			r.cache[a] = c
 			r.mu.Unlock()
@@ -255,11 +293,17 @@ func (r *Registry) Status() (*sdk.Status, error) {
 		if len(bad) > 0 && c.err == nil {
 			c = cachedCheck{key: key, err: fmt.Errorf("unreadable package file %s: %v", bad[0].File, bad[0].Err)}
 		}
+		as.Verification = st.Verification
 		if c.err != nil {
 			as.Consistent = false
 			as.Problem = c.err.Error()
 			st.Healthy = false
 			st.Problems = append(st.Problems, a+": "+c.err.Error())
+			if errors.Is(c.err, pkgerr.ErrSignature) {
+				as.Verification = "invalid"
+			} else if pem != nil {
+				as.Verification = "signed" // the check stopped before it proved the signatures
+			}
 		}
 		st.Packages += as.Packages
 		st.Versions += as.Versions
@@ -268,5 +312,13 @@ func (r *Registry) Status() (*sdk.Status, error) {
 		}
 		st.ABIs = append(st.ABIs, as)
 	}
+	for _, as := range st.ABIs {
+		if rank[as.Verification] > rank[st.Verification] {
+			st.Verification = as.Verification
+		}
+	}
 	return st, nil
 }
+
+// rank orders verification states from good to bad.
+var rank = map[string]int{"verified": 0, "signed": 1, "unverified": 2, "unsigned": 3, "invalid": 4}

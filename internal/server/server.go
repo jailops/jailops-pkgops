@@ -66,6 +66,15 @@ type Config struct {
 	// only after its signature, issuer and audience check out.
 	Access      *cfaccess.Verifier
 	AccessAllow map[string]config.Role
+
+	// DownloadURL is the base URL clients install from (pkg's url: without
+	// /${ABI}/CHANNEL), shown in the client configuration. Default: the
+	// Source URL in read-through mode; in local mode the UI uses the address
+	// it was loaded from, since this server serves the repository itself.
+	DownloadURL string
+	// KeyURL is where clients download the public key. Default: the key the
+	// Source found on the site, else /api/v1/key on this server.
+	KeyURL string
 }
 
 // Server is the HTTP handler of a registry.
@@ -367,13 +376,39 @@ func (s *Server) session1(p *principal) sdk.Session {
 }
 
 func (s *Server) status(w http.ResponseWriter, r *http.Request) {
-	st, err := s.read.Status()
+	st, err := s.readStatus()
 	if err != nil {
 		s.log.Error("status failed", "err", err)
 		fail(w, 500, "internal error")
 		return
 	}
 	writeJSON(w, 200, st)
+}
+
+// readStatus is the reader's status plus what only the server knows: its
+// mode and where clients download the repository and the key from.
+func (s *Server) readStatus() (*sdk.Status, error) {
+	st, err := s.read.Status()
+	if err != nil {
+		return nil, err
+	}
+	st.ServesRepository = s.reg != nil
+	st.Mode = "local"
+	st.DownloadURL = strings.TrimRight(s.cfg.DownloadURL, "/")
+	st.KeyURL = s.cfg.KeyURL
+	if s.cfg.Source != nil {
+		st.Mode = "source"
+		if st.DownloadURL == "" {
+			st.DownloadURL = strings.TrimRight(s.cfg.Source.Base, "/")
+		}
+		if st.KeyURL == "" {
+			st.KeyURL = s.cfg.Source.KeyURL()
+		}
+	}
+	if st.KeyURL == "" && s.read.PublicKeyPEM() != nil {
+		st.KeyURL = "/api/v1/key"
+	}
+	return st, nil
 }
 
 func (s *Server) key(w http.ResponseWriter, r *http.Request) {

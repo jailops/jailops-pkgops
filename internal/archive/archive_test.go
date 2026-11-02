@@ -220,3 +220,27 @@ func TestDeleteNeedsReasonWritesAuditAndKeepsTheRestOfTheRelease(t *testing.T) {
 		t.Errorf("list: %+v", recs)
 	}
 }
+
+func TestFetchFromArchiveStopsAtTheListedSize(t *testing.T) {
+	a, f, r := setup(t)
+	add(t, r, "0.1.0")
+	ix, _ := r.Index()
+	if _, err := a.Push(context.Background(), r.Root, ix); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range f.Releases() {
+		for _, as := range rel.Assets {
+			if strings.HasSuffix(as.Name, ".pkg") {
+				as.Data = append(as.Data, make([]byte, 1<<20)...) // the asset grew behind the manifest's back
+			}
+		}
+	}
+	into := t.TempDir()
+	_, err := a.Fetch(context.Background(), fetch.Options{Into: into})
+	if err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(into, index.FileName)); !os.IsNotExist(err) {
+		t.Error("index written")
+	}
+}

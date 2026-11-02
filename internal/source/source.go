@@ -1,13 +1,14 @@
 // Package source is the read-through view of a published PkgOps site: it reads
 // pkgops-index.json, the signed catalogs and the public key from the site over
-// HTTPS and never writes. `pkgops serve --source URL` uses it so the admin UI
+// HTTPS and never writes. A key read from the site itself is a weaker trust
+// than one from the operator's configuration; Status says which it used. `pkgops serve --source URL` uses it so the admin UI
 // needs no copy of the packages, no database and no second registry.
 package source
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/rsa"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,22 +35,54 @@ type Source struct {
 	TTL time.Duration
 	Now func() time.Time
 
+	// PubKey is the PEM public key the catalogs must verify against, from
+	// the operator's own configuration. Without it the key is read from the
+	// site (KeyPaths), which only shows that the site agrees with itself.
+	PubKey []byte
+	// KeyFingerprint pins the key read from the site: the sha256 of the
+	// key file. A site key with another sha256 is invalid.
+	KeyFingerprint string
+	// KeyPaths are tried in order on the site (default DefaultKeyPaths).
+	KeyPaths []string
+	// RequireVerified makes the repository unhealthy unless every catalog
+	// verifies against a key. A configured PubKey or KeyFingerprint implies it.
+	RequireVerified bool
+
 	mu    sync.Mutex
 	idx   *index.Index
 	idxAt time.Time
 	idxEr error
 	sigs  map[string]sigInfo
-	pub   []byte
-	pubAt time.Time
-	pubOK bool
+	key   *keyInfo
+}
+
+// DefaultKeyPaths are the names the documented setups publish the public
+// key under, relative to the site root.
+var DefaultKeyPaths = []string{"pkgops.pub", "jailops.pub", "repo.pub"}
+
+// Verification states (sdk.Status.Verification).
+const (
+	StateVerified   = "verified"
+	StateSigned     = "signed"
+	StateUnverified = "unverified"
+	StateInvalid    = "invalid"
+	StateUnsigned   = "unsigned"
+)
+
+type keyInfo struct {
+	at      time.Time
+	pem     []byte
+	pk      *rsa.PublicKey
+	source  string // configured or site
+	url     string // where the site publishes it
+	problem string // the key is unusable (bad PEM, wrong fingerprint)
 }
 
 type sigInfo struct {
-	at       time.Time
-	kind     string // pubkey, fingerprints, unsigned
-	verified bool
-	problem  string
-	updated  time.Time
+	at      time.Time
+	kind    string // pubkey, fingerprints, unsigned
+	state   string // see the State constants
+	problem string
 }
 
 func (s *Source) now() time.Time {
@@ -114,30 +147,94 @@ func (s *Source) Refresh() {
 	s.mu.Lock()
 	s.idxAt = time.Time{}
 	s.sigs = nil
+	s.key = nil
 	s.mu.Unlock()
 }
 
-// PublicKeyPEM returns the site's pkgops.pub, nil when it has none.
-func (s *Source) PublicKeyPEM() []byte {
+// trustedKey resolves the key catalogs are checked against: the configured
+// one, else the first of KeyPaths the site has (pinned by KeyFingerprint when
+// set). The result is cached for 5 minutes.
+func (s *Source) trustedKey(ctx context.Context) keyInfo {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.pubOK && s.now().Sub(s.pubAt) < 5*time.Minute {
-		return s.pub
+	if s.key != nil && s.now().Sub(s.key.at) < 5*time.Minute {
+		k := *s.key
+		s.mu.Unlock()
+		return k
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	data, code, err := s.get(ctx, "pkgops.pub", 1<<20)
-	s.pubOK, s.pubAt = true, s.now()
-	if err != nil || code != http.StatusOK {
-		s.pub = nil
-		return nil
+	s.mu.Unlock()
+	k := keyInfo{at: s.now()}
+	if s.PubKey != nil {
+		k.pem, k.source = s.PubKey, "configured"
+	} else {
+		paths := s.KeyPaths
+		if len(paths) == 0 {
+			paths = DefaultKeyPaths
+		}
+		for _, p := range paths {
+			data, code, err := s.get(ctx, p, 1<<20)
+			if err == nil && code == http.StatusOK && len(data) > 0 {
+				k.pem, k.source, k.url = data, "site", s.url(p)
+				break
+			}
+		}
+		switch {
+		case k.pem == nil && s.KeyFingerprint != "":
+			k.problem = fmt.Sprintf("no public key on the site (tried %s) to match the configured fingerprint", strings.Join(paths, ", "))
+		case k.pem != nil && s.KeyFingerprint != "":
+			if fp := repository.Fingerprint(k.pem); !strings.EqualFold(fp, s.KeyFingerprint) {
+				k.problem = fmt.Sprintf("the site's key %s has fingerprint %s, not the configured %s", k.url, fp, s.KeyFingerprint)
+			} else {
+				k.source = "configured"
+			}
+		}
 	}
-	s.pub = data
-	return data
+	if k.pem != nil && k.problem == "" {
+		pk, err := repository.ParseRSAPublicKey(k.pem)
+		if err != nil {
+			k.problem = "the public key is not usable: " + err.Error()
+		} else {
+			k.pk = pk
+		}
+	}
+	s.mu.Lock()
+	s.key = &k
+	s.mu.Unlock()
+	return k
 }
 
-// signature inspects one ABI's packagesite.pkg: is it signed, and does the
-// signature verify against the site's public key.
+func (s *Source) url(rel string) string {
+	u, err := url.Parse(strings.TrimRight(s.Base, "/") + "/")
+	if err != nil {
+		return ""
+	}
+	return u.JoinPath(strings.Split(rel, "/")...).String()
+}
+
+// PublicKeyPEM returns the key catalogs are checked against (configured, or
+// found on the site), nil when there is none or it is unusable.
+func (s *Source) PublicKeyPEM() []byte {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	k := s.trustedKey(ctx)
+	if k.pk == nil {
+		return nil
+	}
+	return k.pem
+}
+
+// KeyURL is where the site publishes its public key ("" when it has none).
+func (s *Source) KeyURL() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return s.trustedKey(ctx).url
+}
+
+func (s *Source) required() bool {
+	return s.RequireVerified || s.PubKey != nil || s.KeyFingerprint != ""
+}
+
+// signature checks one ABI's two catalogs, data.pkg and packagesite.pkg: are
+// they signed, and do both signatures verify against the trusted key.
 func (s *Source) signature(ctx context.Context, abi string) sigInfo {
 	s.mu.Lock()
 	if c, ok := s.sigs[abi]; ok && s.now().Sub(c.at) < 5*time.Minute {
@@ -145,15 +242,23 @@ func (s *Source) signature(ctx context.Context, abi string) sigInfo {
 		return c
 	}
 	s.mu.Unlock()
-	si := sigInfo{at: s.now(), kind: "unsigned"}
-	data, code, err := s.get(ctx, abi+"/latest/packagesite.pkg", 256<<20)
-	switch {
-	case err != nil:
-		si.problem = err.Error()
-	case code != http.StatusOK:
-		si.problem = fmt.Sprintf("packagesite.pkg answered HTTP %d", code)
-	default:
-		si = s.inspectCatalog(data, si)
+	si := sigInfo{at: s.now(), kind: "unsigned", state: StateUnsigned}
+	var raw [2][]byte
+	for n, f := range []string{"data.pkg", "packagesite.pkg"} {
+		data, code, err := s.get(ctx, abi+"/latest/"+f, 256<<20)
+		switch {
+		case err != nil:
+			si.problem = err.Error()
+		case code != http.StatusOK:
+			si.problem = fmt.Sprintf("%s answered HTTP %d", f, code)
+		}
+		if si.problem != "" {
+			break
+		}
+		raw[n] = data
+	}
+	if si.problem == "" {
+		si = s.inspectCatalogs(ctx, raw[0], raw[1], si)
 	}
 	s.mu.Lock()
 	if s.sigs == nil {
@@ -164,53 +269,36 @@ func (s *Source) signature(ctx context.Context, abi string) sigInfo {
 	return si
 }
 
-func (s *Source) inspectCatalog(data []byte, si sigInfo) sigInfo {
-	tr, closeFn, err := pkgfile.OpenTar(strings.NewReader(string(data)))
+func (s *Source) inspectCatalogs(ctx context.Context, data, site []byte, si sigInfo) sigInfo {
+	cat, err := repository.ReadCatalog(bytes.NewReader(data), bytes.NewReader(site), nil)
 	if err != nil {
 		si.problem = err.Error()
 		return si
 	}
-	defer closeFn()
-	ents := map[string][]byte{}
-	for {
-		h, err := tr.Next()
-		if err != nil {
-			break
-		}
-		b, _ := io.ReadAll(io.LimitReader(tr, 256<<20))
-		ents[h.Name] = b
-		if !h.ModTime.IsZero() && h.Name == "packagesite.yaml" {
-			si.updated = h.ModTime
-		}
-	}
-	content, ok := ents["packagesite.yaml"]
-	if !ok {
-		si.problem = "packagesite.pkg has no packagesite.yaml"
+	if cat.Signature == "" {
 		return si
 	}
-	var sig []byte
+	si.kind, si.state = cat.Signature, StateUnverified
+	k := s.trustedKey(ctx)
 	switch {
-	case ents["signature"] != nil:
-		si.kind, sig = "pubkey", ents["signature"]
-	case ents["packagesite.yaml.sig"] != nil:
-		si.kind, sig = "fingerprints", ents["packagesite.yaml.sig"]
-	}
-	if sig == nil {
-		return si
-	}
-	if pem := s.PublicKeyPEM(); pem != nil {
-		pk, err := repository.ParseRSAPublicKey(pem)
-		if err == nil {
-			sum := sha256.Sum256(content)
-			if err := repository.VerifyRSA(pk, hex.EncodeToString(sum[:]), sig); err != nil {
-				si.problem = "signature does not verify against pkgops.pub: " + err.Error()
-			} else {
-				si.verified = true
-			}
+	case k.problem != "":
+		si.state, si.problem = StateInvalid, k.problem
+	case k.pk == nil:
+		if s.required() {
+			si.problem = "the catalogs are signed but there is no public key to verify them with"
+		}
+	default:
+		if _, err := repository.ReadCatalog(bytes.NewReader(data), bytes.NewReader(site), k.pk); err != nil {
+			si.state, si.problem = StateInvalid, "signature does not verify against the public key: "+err.Error()
+		} else {
+			si.state = StateVerified
 		}
 	}
 	return si
 }
+
+// worse orders the states from good to bad for the overall verdict.
+var worse = map[string]int{StateVerified: 0, StateSigned: 1, StateUnverified: 2, StateUnsigned: 3, StateInvalid: 4}
 
 // Status implements the registry status over the index and the catalogs.
 func (s *Source) Status() (*sdk.Status, error) {
@@ -220,14 +308,17 @@ func (s *Source) Status() (*sdk.Status, error) {
 	if ix == nil {
 		return nil, err
 	}
-	st := &sdk.Status{Healthy: true, Channel: repository.DefaultChannel, ABIs: []sdk.ABIStatus{}, Signature: "unsigned"}
+	st := &sdk.Status{Healthy: true, Channel: repository.DefaultChannel, ABIs: []sdk.ABIStatus{}, Signature: "unsigned", Verification: StateUnsigned}
 	if err != nil {
 		st.Healthy = false
 		st.Problems = append(st.Problems, "index: "+err.Error()+" (showing the last good copy)")
 	}
-	if pem := s.PublicKeyPEM(); pem != nil {
-		st.Fingerprint = repository.Fingerprint(pem)
+	k := s.trustedKey(ctx)
+	if k.pk != nil {
+		st.Fingerprint = repository.Fingerprint(k.pem)
+		st.KeySource = k.source
 	}
+	first := true
 	for _, abi := range ix.ABIs() {
 		parsed, _ := pkgfile.ParseABI(abi)
 		names := map[string]bool{}
@@ -240,7 +331,7 @@ func (s *Source) Status() (*sdk.Status, error) {
 		}
 		si := s.signature(ctx, abi)
 		as := sdk.ABIStatus{ABI: abi, Arch: parsed.Arch, Channel: repository.DefaultChannel, Packages: len(names), Versions: versions,
-			Updated: ix.Generated, Signature: si.kind, Consistent: si.problem == ""}
+			Updated: ix.Generated, Signature: si.kind, Consistent: si.problem == "", Verification: si.state}
 		if si.problem != "" {
 			as.Problem = si.problem
 			st.Healthy = false
@@ -249,9 +340,23 @@ func (s *Source) Status() (*sdk.Status, error) {
 		if si.kind != "unsigned" {
 			st.Signature = si.kind
 		}
+		if first || worse[si.state] > worse[st.Verification] {
+			st.Verification = si.state
+		}
+		first = false
 		st.Packages += as.Packages
 		st.Versions += as.Versions
 		st.ABIs = append(st.ABIs, as)
+	}
+	if st.Verification == StateUnsigned && s.required() && len(st.ABIs) > 0 {
+		st.Healthy = false
+		st.Problems = append(st.Problems, "the catalogs are not signed, and this server requires verified signatures")
+	}
+	switch {
+	case st.Verification == StateUnverified:
+		st.Notes = append(st.Notes, "The catalogs are signed, but the signatures were not checked: no public key was found on the site or configured (--pubkey).")
+	case st.Verification == StateVerified && st.KeySource == "site":
+		st.Notes = append(st.Notes, "The public key was read from the same site as the catalogs. A verified signature then only shows that the site agrees with itself, not that it was signed by you: configure the key (--pubkey) or its fingerprint (--key-fingerprint) for that.")
 	}
 	st.Updated = ix.Generated
 	return st, nil

@@ -69,3 +69,28 @@ func TestArchivePruneNeedsTypedConfirmation(t *testing.T) {
 		t.Errorf("%v", err)
 	}
 }
+
+func TestFetchAndServeTrustFlags(t *testing.T) {
+	ctx := context.Background()
+	key := filepath.Join(t.TempDir(), "repo.pub")
+	os.WriteFile(key, []byte("not a key"), 0o644)
+	cases := map[string][]string{
+		"needs --pubkey":   {"--from", "http://127.0.0.1:1", "--pubkey-sha256", "00"},
+		"not the expected": {"--from", "http://127.0.0.1:1", "--pubkey", key, "--pubkey-sha256", strings.Repeat("0", 64)},
+	}
+	for want, args := range cases {
+		if err := cmdFetch(ctx, args); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("fetch %v: %v", args, err)
+		}
+	}
+	for _, args := range [][]string{
+		{"--repo", t.TempDir(), "--pubkey", key},
+		{"--repo", t.TempDir(), "--require-verified"},
+		{"--source", "https://pkg.example.org", "--pubkey", key},
+		{"--source", "https://pkg.example.org", "--download-url", "ftp://pkg.example.org"},
+	} {
+		if err := cmdServe(ctx, args); err == nil {
+			t.Errorf("serve %v: accepted", args)
+		}
+	}
+}

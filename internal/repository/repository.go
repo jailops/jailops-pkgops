@@ -15,7 +15,6 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -868,88 +867,23 @@ func VerifyRepository(dir string, pubPEM []byte) (*RepoCheck, error) {
 		}
 		pk = k
 	}
-	res := &RepoCheck{}
-	var dataBytes, siteBytes []byte
-	for _, c := range []struct{ archive, payload string }{{"data.pkg", "data"}, {"packagesite.pkg", "packagesite.yaml"}} {
-		f, err := os.Open(filepath.Join(dir, c.archive))
+	var files [2]*os.File
+	for n, name := range []string{"data.pkg", "packagesite.pkg"} {
+		f, err := os.Open(filepath.Join(dir, name))
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", pkgerr.ErrNotFound, err)
 		}
-		tr, closeFn, err := pkgfile.OpenTar(f)
-		if err != nil {
-			f.Close()
-			return nil, err
-		}
-		ents := map[string][]byte{}
-		for {
-			h, err := tr.Next()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				closeFn()
-				f.Close()
-				return nil, fmt.Errorf("%w: %s: %v", pkgerr.ErrInvalidPackage, c.archive, err)
-			}
-			b, _ := io.ReadAll(io.LimitReader(tr, 256<<20))
-			ents[h.Name] = b
-		}
-		closeFn()
-		f.Close()
-		content, ok := ents[c.payload]
-		if !ok {
-			return nil, fmt.Errorf("%w: %s lacks %s", pkgerr.ErrInvalidPackage, c.archive, c.payload)
-		}
-		sum := sha256.Sum256(content)
-		hexsum := hex.EncodeToString(sum[:])
-		var sig []byte
-		switch {
-		case ents["signature"] != nil:
-			sig, res.Signature = ents["signature"], "pubkey"
-		case ents[c.payload+".sig"] != nil:
-			sig, res.Signature = ents[c.payload+".sig"], "fingerprints"
-		}
-		res.Signed = sig != nil
-		if pk != nil {
-			if sig == nil {
-				return nil, fmt.Errorf("%w: %s is not signed", pkgerr.ErrSignature, c.archive)
-			}
-			if err := VerifyRSA(pk, hexsum, sig); err != nil {
-				return nil, fmt.Errorf("%s: %w", c.archive, err)
-			}
-		}
-		if c.payload == "data" {
-			dataBytes = content
-		} else {
-			siteBytes = content
-		}
+		defer f.Close()
+		files[n] = f
 	}
-	type rec struct {
-		Name    string `json:"name"`
-		Path    string `json:"path"`
-		Sum     string `json:"sum"`
-		Pkgsize int64  `json:"pkgsize"`
+	cat, err := ReadCatalog(files[0], files[1], pk)
+	if err != nil {
+		return nil, err
 	}
-	var cat struct {
-		Packages []rec `json:"packages"`
-	}
-	if err := json.Unmarshal(dataBytes, &cat); err != nil {
-		return nil, fmt.Errorf("%w: data: %v", pkgerr.ErrInvalidPackage, err)
-	}
-	var site []rec
-	for _, line := range bytes.Split(siteBytes, []byte("\n")) {
-		if len(bytes.TrimSpace(line)) == 0 {
-			continue
-		}
-		var p rec
-		if err := json.Unmarshal(line, &p); err != nil {
-			return nil, fmt.Errorf("%w: packagesite.yaml: %v", pkgerr.ErrInvalidPackage, err)
-		}
-		site = append(site, p)
-	}
+	res := &RepoCheck{Signature: cat.Signature, Signed: cat.Signature != ""}
 	// Every advertised package, in either catalog, must exist with the
 	// advertised size and checksum.
-	for _, p := range append(append([]rec(nil), cat.Packages...), site...) {
+	for _, p := range append(append([]CatalogPackage(nil), cat.Packages...), cat.Site...) {
 		if strings.Contains(p.Path, "..") {
 			return nil, fmt.Errorf("%w: suspicious path %q", pkgerr.ErrInvalidPackage, p.Path)
 		}
@@ -957,7 +891,7 @@ func VerifyRepository(dir string, pubPEM []byte) (*RepoCheck, error) {
 		if err != nil {
 			return nil, err
 		}
-		if p.Sum != "1$"+info.SHA256 || p.Pkgsize != info.Size {
+		if p.Sum != "1$"+info.SHA256 || p.Size != info.Size {
 			return nil, fmt.Errorf("%w: catalog entry for %s does not match %s", pkgerr.ErrInvalidPackage, p.Name, p.Path)
 		}
 	}

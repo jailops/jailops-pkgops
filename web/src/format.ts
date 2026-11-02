@@ -1,3 +1,5 @@
+import type { Status, Verification } from './types'
+
 export function bytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return '-'
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
@@ -31,6 +33,44 @@ export function plural(n: number, one: string, many = one + 's'): string {
 
 export function shortHash(h: string): string {
   return h.length > 16 ? `${h.slice(0, 12)}…` : h
+}
+
+// The base URL clients install from: the one the server names, else the
+// address of this page when this server serves the repository itself; ''
+// when neither is known (a read-through server must never send clients to
+// itself).
+export function downloadBase(st: Pick<Status, 'download_url' | 'serves_repository'>, origin: string): string {
+  if (st.download_url) return st.download_url.replace(/\/+$/, '')
+  return st.serves_repository ? origin : ''
+}
+
+// Where clients get the public key: the published copy when the server
+// names one, else this server's own endpoint.
+export function keyHref(st: Pick<Status, 'key_url'>): string {
+  return st.key_url || '/api/v1/key'
+}
+
+export interface Label { text: string; cls: 'ok' | 'warn' | 'danger' }
+
+export function verificationLabel(v: Verification | undefined, signature: string): Label {
+  switch (v) {
+    case 'verified': return { text: 'Verified', cls: 'ok' }
+    case 'invalid': return { text: 'Invalid signature', cls: 'danger' }
+    case 'unverified': return { text: 'Signed, not verified', cls: 'warn' }
+    case 'signed': return { text: 'Signed, not checked', cls: 'warn' }
+    case 'unsigned': return { text: 'Unsigned', cls: 'warn' }
+  }
+  // an older server without the field: only say what it said
+  return signature === 'unsigned' ? { text: 'Unsigned', cls: 'warn' } : { text: 'Signed', cls: 'warn' }
+}
+
+export function keySourceText(src: Status['key_source']): string {
+  switch (src) {
+    case 'configured': return 'configured on this server'
+    case 'site': return 'read from the published site itself (a weaker trust)'
+    case 'signer': return 'this server\'s signing key'
+  }
+  return 'none'
 }
 
 // A client configuration the visitor can paste into /usr/local/etc/pkg/repos/NAME.conf.

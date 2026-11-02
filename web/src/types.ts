@@ -42,7 +42,12 @@ export interface ABIStatus {
   signature: string
   consistent: boolean
   problem?: string
+  verification?: Verification
 }
+
+// What the signature is worth (mirrors sdk.Status.Verification).
+export type Verification = 'verified' | 'signed' | 'unverified' | 'invalid' | 'unsigned'
+
 
 export interface Status {
   healthy: boolean
@@ -56,6 +61,13 @@ export interface Status {
   uploads: boolean
   keep: number
   channel: string
+  verification?: Verification
+  key_source?: 'configured' | 'site' | 'signer'
+  notes?: string[]
+  mode?: 'local' | 'source'
+  serves_repository?: boolean
+  download_url?: string
+  key_url?: string
 }
 
 export type Role = 'viewer' | 'uploader' | 'admin'

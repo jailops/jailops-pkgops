@@ -196,30 +196,41 @@ For a packages repository that lives on GitHub (for example jailops-packages):
 ```yaml
 # .github/workflows/publish.yml in the packages repository (UNVERIFIED on GitHub)
 on: { push: { branches: [master] }, workflow_dispatch: {} }
-permissions: { contents: write, pages: write, id-token: write }   # contents: archive releases
+permissions: {}
 concurrency: { group: publish, cancel-in-progress: false }
 jobs:
   publish:
     runs-on: ubuntu-latest
-    environment: { name: github-pages }
+    environment: signing          # the key is a secret of this environment only
+    permissions: { contents: write }   # contents: archive releases
     steps:
       - uses: actions/checkout@v4
+        with: { persist-credentials: false }
       - uses: actions/setup-go@v5
         with: { go-version-file: go.mod }
       - run: sh scripts/install-pkgops.sh /usr/local/bin   # the release binary, sha256 verified (README, Install)
-      - name: baseline from the published site (or the archive on the first run / damage)
-        run: pkgops fetch --from https://pkg.example.org --into site --prune prune.yaml --source auto
+      - name: baseline from the published site, verified against the committed public key
+        run: pkgops fetch --from https://pkg.example.org --into site --prune prune.yaml --source auto --pubkey repo.pub
         env: { PKGOPS_ARCHIVE_REPO: ${{ github.repository }}, GITHUB_TOKEN: ${{ github.token }} }
       - name: build the packages
         run: pkgops build -f main/hello/pkgops.yaml -o dist
-      - name: add them: policy, prune manifest, signing
-        run: pkgops repo --repo site --policy pkgops-repo.yaml --prune prune.yaml --key "$KEY_FILE" dist
-        # the signing key comes from an environment secret, written to $KEY_FILE with umask 077
+      - name: sign (the only step that has the key on disk)
+        env: { KEY: ${{ secrets.PKG_REPO_KEY }} }
+        run: |
+          umask 077; k="$RUNNER_TEMP/repo.key"; trap 'rm -f "$k"' EXIT
+          printf '%s\n' "$KEY" > "$k"
+          pkgops repo --repo site --policy pkgops-repo.yaml --prune prune.yaml --key "$k" dist
       - run: pkgops verify site/FreeBSD:15:amd64/latest --pubkey repo.pub
       - run: pkgops archive push --repo ${{ github.repository }} --from site
         env: { GITHUB_TOKEN: ${{ github.token }} }
       - uses: actions/upload-pages-artifact@v3
         with: { path: site }
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: { name: github-pages }
+    permissions: { pages: write, id-token: write }
+    steps:
       - uses: actions/deploy-pages@v4
 ```
 
@@ -231,6 +242,61 @@ then falls back to the archive (an empty archive on the very first run is
 The older `publish: pages` mode of the action (a `gh-pages` branch) keeps
 binaries in git history and is **not recommended** for a repository with many
 versions.
+
+### Verified baseline
+
+`pkgops-index.json` is not signed, and the next `pkgops repo --key` signs new
+catalogs over whatever the baseline holds. Without a check, whoever controls
+the *delivery* of the site (DNS, a CDN, the web server), but not the key, could
+change a package and its index entry and have your next normal release sign it.
+
+`pkgops fetch --pubkey repo.pub` closes that for everything a signature covers.
+Before it writes anything it downloads `data.pkg` and `packagesite.pkg` of every
+ABI in scope and:
+
+- verifies both signatures against `repo.pub`, which must come from a trusted
+  place: your checkout, or a file checked against a committed fingerprint
+  (`--pubkey-sha256`). Never take it from the site you are verifying;
+- requires every package the signed catalog advertises to be in the index with
+  the same file, sha256 and size, and verifies the download against that hash;
+- refuses an index entry for a package name the catalog does not advertise, or
+  a version at or above the advertised one: those are exactly the entries the
+  next run would advertise and sign;
+- refuses a prune manifest that drops the newest signed version while older
+  versions stay (an unsigned one would become the newest); prune every version
+  of that package, or publish a new version instead;
+- refuses an index without signed catalogs, a catalog signed with another key,
+  and a catalog in a format it cannot compare (pkg's own `2$` sums).
+
+Limits, plainly:
+
+- **History is not signed.** A pkg catalog lists only the newest version of
+  each package, so older versions are checked against the index alone, as
+  before (`fetch` counts them as "no signature"). They are never advertised or
+  signed by the next run, but a changed old file would be carried on and served
+  again. The GitHub Releases archive is an independent second copy:
+  `pkgops verify-archive --from site` before signing reports a mismatch.
+- **No rollback serial.** The catalogs carry no signed counter or date (the tar
+  mtime is not covered by the signature). A complete older snapshot of the site,
+  catalogs and index of an earlier day, verifies. Its newest versions are
+  genuine, signed earlier; a pipeline that builds every current version from its
+  sources replaces them, and `verify-archive` reports versions that were
+  published and are now missing. Packages that are not rebuilt keep the older
+  signed version.
+- The first publish has nothing to verify: `fetch` answers "no baseline", and
+  starting from an empty site is an explicit step (see the workflow above).
+- The archive restore path (`--source releases`, or `auto` when the site has no
+  index) has no signed catalog; it is trusted as far as the GitHub repository is.
+
+**Design note, not implemented** (it changes what pkgops signs): a detached
+signature over `pkgops-index.json` (`pkgops-index.json.sig`, RSA-SHA256 over the
+hex sha256 of the file, the convention of the catalogs) made by `pkgops repo`
+with the same key, and a monotonic `serial` field in the index raised by every
+`pkgops repo`. `fetch --pubkey` would then verify the whole history against the
+key and refuse a serial lower than one the checkout records (for example a
+`PUBLISHED_SERIAL` file the publish job commits, or the serial of the last
+deploy kept as a workflow variable). The catalogs pkg reads would not change.
+Until then the archive is the cross-check for history.
 
 Admin UI over such a site: see [admin.md](admin.md).
 

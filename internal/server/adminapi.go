@@ -67,7 +67,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		s.adminError(w, "overview", err)
 		return
 	}
-	if st, err := s.read.Status(); err == nil {
+	if st, err := s.readStatus(); err == nil {
 		o.Status = st
 	}
 	if p != nil {

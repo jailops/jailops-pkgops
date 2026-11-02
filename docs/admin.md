@@ -111,15 +111,52 @@ bob@example.com     viewer
 export PKGOPS_GITHUB_APP_ID=123456 PKGOPS_GITHUB_INSTALLATION_ID=7654321
 export PKGOPS_GITHUB_KEY_FILE=/usr/local/etc/pkgops/app.pem      # chmod 600
 pkgops serve --ui --listen 127.0.0.1:39112 \
-  --source https://pkg.example.org \
+  --source https://pkg.example.org --key-fingerprint 9b1f... \
   --prune-via github:jailops/jailops-packages@master:prune.yaml \
   --workflow publish.yml --archive \
   --policy pkgops-repo.yaml \
   --access-team example --access-aud 0123abcd... --access-allow /usr/local/etc/pkgops/access-allow.txt
 ```
 
+`--key-fingerprint` is the sha256 of the published public key file (see below).
 Without `--prune-via` the service still shows everything and cleanup requests
 become manual steps. The web UI is off by default: add `--ui` to serve it (the admin UI needs it).
+
+### Signature status and the key it is checked with
+
+The status page checks both catalogs of every ABI (`data.pkg` and
+`packagesite.pkg`) and says what the signature is worth:
+
+| state | meaning | healthy |
+|---|---|---|
+| verified | every catalog verifies against the public key | yes |
+| unverified | the catalogs are signed, but there is no key to check them with | only without `--require-verified` |
+| invalid | a signature does not verify, or the key is unusable (bad PEM, wrong fingerprint) | no |
+| unsigned | no signature | only without `--require-verified` |
+
+The key comes from, in order of trust:
+
+1. `--pubkey repo.pub`: a file from your own configuration (shown as
+   *configured*);
+2. `--key-fingerprint SHA256`: the key the site publishes, accepted only when
+   the sha256 of the file matches (also *configured*);
+3. otherwise the key the site itself publishes, the first of `pkgops.pub`,
+   `jailops.pub` and `repo.pub` it has (`--key-path` changes the list). This is
+   shown as **read from the site itself**, with a note: a signature that
+   verifies against a key from the same site only shows that the site agrees
+   with itself, not that you signed it.
+
+`--pubkey` and `--key-fingerprint` imply `--require-verified`.
+
+### Upload and download addresses
+
+The admin service is not the repository: it does not serve the package files.
+The client configuration it shows therefore points at `--download-url` (default:
+the `--source` URL), and the key link at `--key-url` (default: the key it found
+on the site). Uploads do not go here either: packages are added by the build
+that publishes the site. In local mode (`pkgops serve --repo`), where the server
+does serve the repository, the UI uses the address it was loaded from unless
+`--download-url` names another one (a CDN or a proxy in front).
 
 ## The permanent archive (GitHub Releases)
 

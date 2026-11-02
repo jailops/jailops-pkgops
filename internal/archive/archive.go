@@ -401,10 +401,15 @@ func (a *Archive) Fetch(ctx context.Context, o fetch.Options) (*fetch.Result, er
 		if err != nil {
 			return err
 		}
-		n, err := io.Copy(f, rc)
+		// never more than the archive manifest says (+1 byte to see an excess)
+		n, err := io.Copy(f, io.LimitReader(rc, e.Size+1))
 		res.Bytes += n
 		if cerr := f.Close(); err == nil {
 			err = cerr
+		}
+		if err == nil && n > e.Size {
+			os.Remove(dst)
+			err = fmt.Errorf("%w: the archived asset %s is larger than the %d bytes its manifest lists", pkgerr.ErrInvalidPackage, r.Asset, e.Size)
 		}
 		return err
 	}
