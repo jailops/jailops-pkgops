@@ -6,6 +6,29 @@ and `.goreleaser.yaml` publishes the GitHub release notes from the commits.
 
 ## [Unreleased]
 
+### Added
+- `pkgops lint`: the checks a port gets from stage-qa, for recipes. It reports a file under the source's
+  `packaging/{rc.d,man,completion}` or a `packaging/newsyslog*` file that no recipe installs, an rc.d `REQUIRE` or
+  `BEFORE` that nothing provides (neither a script of the package nor the base system), an rc.d file name that is not
+  one of its `PROVIDE` names, a `dirs:` entry that claims a directory of the system layout, and a dependency on one
+  flavour of a package whose flavours conflict. `--recipe` repeats for the recipes that package one source, `--src` is
+  the fetched source tree, `-o json` prints the findings, `--fail-on warning` fails on warnings too. Exit status 0
+  clean, 1 findings, 2 usage.
+- `messages:` in a recipe writes the manifest `messages` field (pkg-message): `message` and a `type` of `install`
+  (default), `upgrade` or `remove`.
+
+### Fixed
+- The `service:` generator stopped the service in the pre-deinstall script on every upgrade and nothing started it
+  again. pkg runs the new pre-install, the old pre-deinstall and then the new post-install on an upgrade, with
+  `PKG_UPGRADE` set. The generated pre-deinstall now skips the stop when `PKG_UPGRADE` is set, and the generated
+  post-install restarts the service after an upgrade if it is running.
+- A package no longer claims directories that belong to the system layout or are shared with other packages:
+  `share/man/man1` to `man9`, `share/bash-completion` and its `completions`, `share/zsh/site-functions`,
+  `share/fish/vendor_completions.d`, `libdata/pkgconfig` and the rest of the former BSD.local.dist tree. pkg removed
+  such a directory when the last package left it empty.
+- The version is validated as a pkg version, `VERSION[_REVISION][,EPOCH]`. `1.0-rc1` is refused: a hyphen makes
+  `name-version` ambiguous.
+
 ## [0.2.1] - 2026-11-02
 
 ### Security

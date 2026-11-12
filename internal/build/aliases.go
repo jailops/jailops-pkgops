@@ -8,6 +8,7 @@ type (
 	File         = pkgfile.File
 	Dir          = pkgfile.Dir
 	Dep          = pkgfile.Dep
+	Message      = pkgfile.Message
 	Info         = pkgfile.Info
 	WriteOptions = pkgfile.WriteOptions
 	ABI          = pkgfile.ABI

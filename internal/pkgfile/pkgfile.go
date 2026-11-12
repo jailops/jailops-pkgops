@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/klauspost/compress/zstd"
 
@@ -48,6 +49,27 @@ type Dir struct {
 	Group string
 }
 
+// Message types of the manifest "messages" list: when pkg shows the text.
+const (
+	MessageInstall = "install"
+	MessageUpgrade = "upgrade"
+	MessageRemove  = "remove"
+)
+
+// MessageTypes are the valid Message types.
+var MessageTypes = []string{MessageInstall, MessageUpgrade, MessageRemove}
+
+// MessageMaxBytes bounds the text of one message.
+const MessageMaxBytes = 16 * 1024
+
+// Message is one entry of the manifest "messages" list (the pkg-message of a
+// port): text pkg prints when the package is installed, upgraded or removed,
+// and shows again with `pkg info -D`.
+type Message struct {
+	Message string
+	Type    string // install, upgrade or remove; empty means install
+}
+
 // Dep is a package dependency.
 type Dep struct {
 	Name    string
@@ -77,6 +99,7 @@ type Package struct {
 	Files        []File
 	Dirs         []Dir
 	Scripts      map[string]string // phase -> script body
+	Messages     []Message         // pkg-message texts
 
 	// MinOSVersion is the lowest __FreeBSD_version (the number `uname -U`
 	// prints, 1501000 for 15.1-RELEASE) the package may be installed on. It
@@ -337,6 +360,37 @@ func (p *Package) manifests() (manifest, compact []byte, files []fileEntry, dirs
 	}
 	if p.MinOSVersion > 0 {
 		head.Set("annotations", map[string]string{"FreeBSD_version": strconv.Itoa(p.MinOSVersion)})
+	}
+	if len(p.Messages) > 0 {
+		// The manifest field is an array of {"message", "type"} objects. It
+		// is part of the compact manifest too, so the repository catalog can
+		// answer `pkg rquery %M`. The layout follows pkg's manifest format;
+		// it has not been read back by a real pkg(8) here.
+		var mb bytes.Buffer
+		mb.WriteByte('[')
+		for i, m := range p.Messages {
+			if i > 0 {
+				mb.WriteByte(',')
+			}
+			typ := m.Type
+			if typ == "" {
+				typ = MessageInstall
+			}
+			if !contains(MessageTypes, typ) {
+				err = fmt.Errorf("%w: message type %q must be install, upgrade or remove", pkgerr.ErrInvalidSpec, typ)
+				return
+			}
+			if m.Message == "" || len(m.Message) > MessageMaxBytes || !utf8.ValidString(m.Message) || strings.ContainsRune(m.Message, 0) {
+				err = fmt.Errorf("%w: message %d is empty, too long or not valid text", pkgerr.ErrInvalidSpec, i)
+				return
+			}
+			mo := &ordjson.Obj{}
+			mo.Set("message", m.Message)
+			mo.Set("type", typ)
+			mb.Write(mo.Bytes())
+		}
+		mb.WriteByte(']')
+		head.Raw("messages", mb.Bytes())
 	}
 	compact = head.Bytes()
 

@@ -181,19 +181,28 @@ scripts:                          # pre-install, post-install, pre-deinstall, po
   post-install: |
     echo "enable with: sysrc hello_enable=YES"
   pre-deinstall: {file: packaging/pre-deinstall.sh}
+
+messages:                         # pkg-message: shown on install (default), upgrade or remove, and by `pkg info -D`
+  - message: "Enable it with: sysrc hello_enable=YES"
+    type: install
 ```
 
 Variables `${NAME} ${VERSION} ${ABI} ${ARCH} ${GOARCH}` expand in `source`,
 `build.*`. Unknown keys and unknown variables are errors. Directories below the
 prefix that hold your files (for example `share/hello`, `etc/hello`) are
-claimed automatically so deinstall removes them when empty. Hardlinks are not
-supported.
+claimed automatically so deinstall removes them when empty; directories of the
+system layout that packages share (`share/man/man8`, `share/bash-completion/completions`,
+`share/zsh/site-functions`, `etc/rc.d` and so on) are never claimed. The version is a pkg
+version, `VERSION[_REVISION][,EPOCH]`: letters, digits, dots and plus signs, and no hyphen.
+Hardlinks are not supported.
 
 ## CLI
 
 ```
 pkgops build   [-f pkgops.yaml] [--abi a,b|all] [-o dist] [--no-go-build] [--epoch N]
 pkgops inspect file.pkg                   verify a package, print its manifest
+pkgops lint    [--recipe DIR]... [--src DIR] [--fail-on error|warning] [-o text|json]
+                                          check recipes against the source they package (exit 0, 1 or 2)
 pkgops key     generate | public | fingerprint
 pkgops repo    [--repo DIR] [--key repo.key] [--sign pubkey|fingerprints]
                [--files-list] [--replace] [--policy pkgops-repo.yaml] [--prune prune.yaml] [file.pkg ...]

@@ -46,7 +46,28 @@ files config directories scripts
 - `users` / `groups`: only *names*. pkg does not create them from this list;
   ports put `pw` commands into the pre-install script, and pkgops does the same.
 - `scripts`: `pre-install`, `post-install`, `pre-deinstall`, `post-deinstall`
-  (pkg-script(5)). `lua_scripts` also exist; pkgops does not write them.
+  (pkg-script(5)). `lua_scripts` also exist; pkgops does not write them. On an
+  upgrade pkg runs the new pre-install, the old pre-deinstall, replaces the files
+  and runs the new post-install, with `PKG_UPGRADE` set in each of them.
+- `messages`: a list of `{"message": TEXT, "type": "install"|"upgrade"|"remove"}`,
+  the pkg-message of the package. pkgops writes it into the manifest and into the
+  compact manifest, so the repository catalog carries it. The recipe key is
+  `messages:` with `message` and `type` (default `install`). The field layout
+  follows pkg's manifest format.
+- `version`: a pkg version, `VERSION[_REVISION][,EPOCH]`. VERSION is letters, digits,
+  dots and plus signs; a hyphen is refused because it makes `name-version` ambiguous.
+
+### Lint
+
+`pkgops lint` checks recipes the way stage-qa checks a port (see the README for the flags).
+Rules: `packaging-file` (a file under the source's `packaging/rc.d`, `man`, `completion` or a
+`packaging/newsyslog*` that no recipe installs; warning), `rc-require` (a `REQUIRE` or `BEFORE` of
+an installed rc.d script that no script of the package and no base rc.d script provides;
+warning), `rc-name` (the file name is not one of the script's `PROVIDE` names; warning),
+`rc-unread` (no source tree, so the script was not read; warning), `system-dir` (a `dirs:` entry
+claims a directory of the system layout; error), `conflicting-dep` (a dependency on one flavour of
+a package whose flavours conflict, today the `git` flavours; error), and `manifest` (the recipe does
+not load; error). The base rc.d names are the `PROVIDE` lines of `/etc/rc.d` on 15.2.
 
 ### Symlinks
 
@@ -212,10 +233,15 @@ breaking this one.
 
 What the package gets: `etc/rc.d/<name>` (mode 0555, like `services:`), the user
 (and a group of the same name) in the pre-install script unless `user` is `root`
-or already in `users:`, the newsyslog fragment, and a pre-deinstall step that
-runs `service <name> onestop` before files are removed (an install over a
-running older version with `pkg add` left the old process running: restart
-the service after an upgrade; pkg upgrade itself was not tried). A generated user has no login shell and **no home**
+or already in `users:`, the newsyslog fragment, a pre-deinstall step that
+runs `service <name> onestop` before files are removed, and a post-install step
+that restarts the service after an upgrade if it is running. On an upgrade pkg
+runs the new pre-install, the old pre-deinstall, replaces the files and runs the
+new post-install, with `PKG_UPGRADE` set in each (pkg-script(5)); the generated
+pre-deinstall therefore does not stop the service when `PKG_UPGRADE` is set, so a
+service that was up stays up through the replacement and is restarted once.
+Neither step runs for an install into another root (`pkg -r`, `PKG_ROOTDIR`).
+A generated user has no login shell and **no home**
 (`/nonexistent`); declare it in `users:` for a home, and use `dirs:` for state
 directories (`/var/db/<name>`). Nothing is enabled: `sysrc <name>_enable=YES`.
 The user is **not** removed on `pkg delete`; log files and archives are left

@@ -223,6 +223,9 @@ func (s *Spec) Package(opt BuildOptions) (*Package, error) {
 	for _, d := range s.Deps {
 		p.Deps = append(p.Deps, Dep(d))
 	}
+	for _, m := range s.Messages {
+		p.Messages = append(p.Messages, Message{Message: strings.TrimRight(m.Message, "\n"), Type: m.Type})
+	}
 	newest := time.Time{}
 	note := func(t time.Time) {
 		if t.After(newest) {
@@ -404,14 +407,6 @@ func (s *Spec) Package(opt BuildOptions) (*Package, error) {
 	return p, nil
 }
 
-// wellKnownDirs are never claimed by a package: they belong to the base
-// system or the ports tree layout.
-var wellKnownDirs = []string{
-	"", "bin", "sbin", "lib", "libexec", "libdata", "libdata/pkgconfig", "include", "etc", "etc/rc.d",
-	"etc/periodic", "etc/pkg", "share", "share/doc", "share/examples", "share/man", "man", "www",
-	"share/licenses", "etc/newsyslog.conf.d", "etc/syslog.d", "etc/devd", "etc/sysctl.conf.d",
-}
-
 // autoDirs claims every directory below the prefix that holds package files
 // (and is not a well-known shared directory) so deinstall removes it when
 // empty. Directories outside the prefix must be declared with dirs:.
@@ -425,7 +420,7 @@ func (s *Spec) autoDirs(p *Package) []Dir {
 	for _, f := range p.Files {
 		for dir := path.Dir(f.Path); strings.HasPrefix(dir, prefix+"/"); dir = path.Dir(dir) {
 			rel := strings.TrimPrefix(dir, prefix+"/")
-			if contains(wellKnownDirs, rel) || have[dir] {
+			if IsSystemDir(rel) || have[dir] {
 				continue
 			}
 			have[dir] = true

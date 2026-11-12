@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"jailops.net/pkgops/internal/pkgerr"
+	"jailops.net/pkgops/internal/pkgfile"
 	"jailops.net/pkgops/internal/testutil"
 )
 
@@ -271,5 +272,130 @@ func TestBuildAllSelectorsAndFailureNaming(t *testing.T) {
 	one, _ := ParseSpec([]byte(strings.Replace(multiSpec, "abis: [FreeBSD:15:amd64, FreeBSD:15:aarch64]", "abi: FreeBSD:15:amd64", 1)))
 	if res, err := BuildAll(context.Background(), one, BuildOptions{BaseDir: dir, OutDir: t.TempDir(), Epoch: testutil.FixedTime}); err != nil || len(res) != 1 {
 		t.Errorf("%v %v", res, err)
+	}
+}
+
+// A package that installs a manual page and shell completions owns the files,
+// never the shared directories they sit in.
+func TestPackageDoesNotClaimSystemDirs(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{"demo.8", "demo.bash", "_demo", "demo.fish", "demo.conf"} {
+		os.WriteFile(filepath.Join(dir, f), []byte("x"), 0o644)
+	}
+	s, err := ParseSpec([]byte(`
+name: demo
+version: "1.0"
+comment: demo
+maintainer: a@b.c
+www: https://example.com
+abi: FreeBSD:15:amd64
+files:
+  - {source: demo.8, destination: share/man/man8/demo.8}
+  - {source: demo.bash, destination: share/bash-completion/completions/demo}
+  - {source: _demo, destination: share/zsh/site-functions/_demo}
+  - {source: demo.fish, destination: share/fish/vendor_completions.d/demo.fish}
+  - {source: demo.conf, destination: etc/demo/demo.conf}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.Package(BuildOptions{BaseDir: dir, Epoch: time.Unix(1, 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, d := range p.Dirs {
+		got = append(got, d.Path)
+	}
+	if len(got) != 1 || got[0] != "/usr/local/etc/demo" {
+		t.Errorf("the package claims %v, want only its own /usr/local/etc/demo", got)
+	}
+	// and so does the manifest of the written package
+	file := filepath.Join(t.TempDir(), "demo-1.0.pkg")
+	if _, err := p.WriteFile(file, WriteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	m, err := pkgfile.ReadManifest(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Directories) != 1 || m.Directories[0].Path != "/usr/local/etc/demo" || len(m.Files) != 5 {
+		t.Errorf("manifest directories %+v, files %d", m.Directories, len(m.Files))
+	}
+	for _, d := range []string{"share/man/man1", "share/man/man8", "man/man1", "share/bash-completion", "share/bash-completion/completions",
+		"share/zsh", "share/zsh/site-functions", "share/fish", "share/fish/vendor_completions.d", "etc/rc.d", "etc/newsyslog.conf.d", "libdata/pkgconfig"} {
+		if !IsSystemDir(d) {
+			t.Errorf("%s must be a system directory", d)
+		}
+	}
+	if IsSystemDir("share/jailops") || IsSystemDir("etc/jailops") {
+		t.Error("a package's own directory is not a system directory")
+	}
+}
+
+func TestMessages(t *testing.T) {
+	base := "name: demo\nversion: \"1.0\"\ncomment: demo\nmaintainer: a@b.c\nwww: https://example.com\nabi: FreeBSD:15:amd64\nfiles: [{content: x, destination: etc/demo.conf}]\n"
+	s, err := ParseSpec([]byte(base + `messages:
+  - message: |
+      Enable it with sysrc demo_enable=YES.
+    type: install
+  - {message: "Restart it: service demo restart", type: upgrade}
+  - {message: "Back up /var/db/demo first."}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.Package(BuildOptions{Epoch: time.Unix(1, 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	info, err := p.Write(&buf, WriteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `"messages":[{"message":"Enable it with sysrc demo_enable=YES.","type":"install"},{"message":"Restart it: service demo restart","type":"upgrade"},{"message":"Back up /var/db/demo first.","type":"install"}]`
+	if !strings.Contains(string(info.CompactManifest()), want) {
+		t.Errorf("the compact manifest lacks the messages:\n%s", info.CompactManifest())
+	}
+	// the package reads back and verifies with its messages in it
+	file := filepath.Join(t.TempDir(), "demo-1.0.pkg")
+	if err := os.WriteFile(file, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if rd, err := pkgfile.Verify(file); err != nil || !strings.Contains(string(rd.CompactManifest()), want) {
+		t.Errorf("verify after a round trip: %v", err)
+	}
+	// no messages, no field
+	s2, _ := ParseSpec([]byte(base))
+	p2, _ := s2.Package(BuildOptions{Epoch: time.Unix(1, 0)})
+	info2, err := p2.Write(&bytes.Buffer{}, WriteOptions{})
+	if err != nil || strings.Contains(string(info2.CompactManifest()), "messages") {
+		t.Errorf("a package without messages must not have the field: %v", err)
+	}
+	for name, bad := range map[string]string{
+		"empty":       "messages: [{message: \"  \"}]\n",
+		"bad type":    "messages: [{message: hi, type: reboot}]\n",
+		"no message":  "messages: [{type: install}]\n",
+		"unknown key": "messages: [{message: hi, kind: install}]\n",
+		"too long":    "messages: [{message: \"" + strings.Repeat("x", 16*1024+1) + "\"}]\n",
+	} {
+		if _, err := ParseSpec([]byte(base + bad)); !errors.Is(err, pkgerr.ErrInvalidSpec) {
+			t.Errorf("%s: want ErrInvalidSpec, got %v", name, err)
+		}
+	}
+}
+
+func TestVersionGrammarInSpec(t *testing.T) {
+	base := "name: demo\ncomment: demo\nmaintainer: a@b.c\nwww: https://example.com\nabi: FreeBSD:15:amd64\n"
+	for _, v := range []string{"1.0.rc1", "1.2_3,1", "15.0p1"} {
+		if _, err := ParseSpec([]byte(base + "version: \"" + v + "\"\n")); err != nil {
+			t.Errorf("version %q: %v", v, err)
+		}
+	}
+	for _, v := range []string{"1.0-rc1", "1 0", ""} {
+		if _, err := ParseSpec([]byte(base + "version: \"" + v + "\"\n")); !errors.Is(err, pkgerr.ErrInvalidSpec) {
+			t.Errorf("version %q must be refused, got %v", v, err)
+		}
 	}
 }

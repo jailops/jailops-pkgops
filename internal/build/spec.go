@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -57,6 +58,9 @@ type Spec struct {
 	Users    []UserSpec            `yaml:"users"`
 	Groups   []GroupSpec           `yaml:"groups"`
 	Scripts  map[string]ScriptSpec `yaml:"scripts"`
+	// Messages are the pkg-message texts of the package (manifest "messages"):
+	// shown by pkg on install, upgrade or removal and again by `pkg info -D`.
+	Messages []MessageSpec `yaml:"messages"`
 
 	// Service generates an rc.d script, the service user and an optional
 	// newsyslog fragment (see ServiceDef); services: still installs hand-written scripts.
@@ -133,6 +137,13 @@ type ServiceSpec struct {
 	Source      string `yaml:"source"`
 	Content     string `yaml:"content"`
 	Destination string `yaml:"destination"` // default etc/rc.d/<name>
+}
+
+// MessageSpec is one pkg-message text. Type is install (default), upgrade or
+// remove: when pkg prints it.
+type MessageSpec struct {
+	Message string `yaml:"message"`
+	Type    string `yaml:"type"`
 }
 
 // UserSpec creates a system user in the generated pre-install script.
@@ -229,8 +240,8 @@ func (s *Spec) Validate() error {
 	if !pkgfile.ValidName(s.Name) {
 		return specErr("name %q is missing or invalid", s.Name)
 	}
-	if s.Version == "" || strings.ContainsAny(s.Version, " \t/:") {
-		return specErr("version %q is missing or invalid", s.Version)
+	if !pkgfile.ValidVersion(s.Version) {
+		return specErr("version %q is missing or invalid: a pkg version is VERSION[_REVISION][,EPOCH] made of letters, digits, dots and plus signs (no hyphen: it would make name-version ambiguous)", s.Version)
 	}
 	if s.Origin != "" && !reOrigin.MatchString(s.Origin) {
 		return specErr("origin %q must look like category/name", s.Origin)
@@ -342,6 +353,17 @@ func (s *Spec) Validate() error {
 	for i, g := range s.Groups {
 		if !reIdent.MatchString(g.Name) {
 			return specErr("groups[%d]: invalid name %q", i, g.Name)
+		}
+	}
+	for i, m := range s.Messages {
+		if strings.TrimSpace(m.Message) == "" {
+			return specErr("messages[%d]: message is required", i)
+		}
+		if len(m.Message) > pkgfile.MessageMaxBytes || !utf8.ValidString(m.Message) || strings.ContainsRune(m.Message, 0) {
+			return specErr("messages[%d]: message must be valid text of at most %d bytes", i, pkgfile.MessageMaxBytes)
+		}
+		if m.Type != "" && !contains(pkgfile.MessageTypes, m.Type) {
+			return specErr("messages[%d]: type %q must be install, upgrade or remove", i, m.Type)
 		}
 	}
 	for k := range s.Scripts {
