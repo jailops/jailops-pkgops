@@ -6,6 +6,8 @@ and `.goreleaser.yaml` publishes the GitHub release notes from the commits.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-12
+
 ### Added
 - `pkgops lint`: the checks a port gets from stage-qa, for recipes. It reports a file under the source's
   `packaging/{rc.d,man,completion}` or a `packaging/newsyslog*` file that no recipe installs, an rc.d `REQUIRE` or
