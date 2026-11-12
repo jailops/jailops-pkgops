@@ -65,11 +65,21 @@ type (
 	GroupSpec = build.GroupSpec
 	// ScriptSpec is a pre/post install/deinstall script.
 	ScriptSpec = build.ScriptSpec
+	// MessageSpec is one pkg-message text of a package.
+	MessageSpec = build.MessageSpec
 	// BuildOptions controls Spec.Package and BuildPackage.
 	BuildOptions = build.BuildOptions
 	// Built is the result of BuildPackage.
 	Built = build.Built
+	// LintFinding is one result of Lint.
+	LintFinding = build.LintFinding
+	// LintRecipe is one recipe handed to Lint.
+	LintRecipe = build.LintRecipe
 )
+
+// Lint checks recipes against the source tree they package and against FreeBSD
+// packaging practice (see build.Lint for the rules).
+func Lint(recipes []LintRecipe, srcDir string) []LintFinding { return build.Lint(recipes, srcDir) }
 
 // ScriptNames are the script phases pkg(8) knows about.
 var ScriptNames = pkgfile.ScriptNames
@@ -96,6 +106,8 @@ type (
 	Dir = pkgfile.Dir
 	// Dep is a package dependency.
 	Dep = pkgfile.Dep
+	// Message is one pkg-message text of a package.
+	Message = pkgfile.Message
 	// Package is the complete in-memory description of a FreeBSD package.
 	Package = pkgfile.Package
 	// WriteOptions tunes archive creation.

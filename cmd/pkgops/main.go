@@ -64,6 +64,8 @@ const usage = `pkgops - build native FreeBSD packages and pkg repositories (no F
 usage:
   pkgops build   [-f pkgops.yaml] [--abi FreeBSD:15:amd64] [-o dist] [--no-go-build] [--epoch N]
   pkgops inspect <file.pkg>                 verify a package and print its manifest
+  pkgops lint    [--recipe DIR]... [--src DIR] [--fail-on error|warning] [-o text|json]
+                                            check recipes against the source they package (exit 0 clean, 1 findings, 2 usage)
   pkgops key     generate [--out repo.key] [--bits 4096]
   pkgops key     public --key repo.key              print the public key (PEM)
   pkgops key     fingerprint <repo.pub>             print the file for a client fingerprints dir
@@ -104,6 +106,8 @@ func main() {
 		err = cmdBuild(ctx, args)
 	case "inspect":
 		err = cmdInspect(args)
+	case "lint":
+		err = cmdLint(args, os.Stdout)
 	case "key":
 		err = cmdKey(args)
 	case "repo":
@@ -139,6 +143,10 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
+		var code exitCode
+		if errors.As(err, &code) {
+			os.Exit(int(code))
+		}
 		if errors.Is(err, flag.ErrHelp) {
 			os.Exit(0)
 		}

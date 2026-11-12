@@ -58,6 +58,16 @@ var reName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
 // ValidName reports whether s is a valid package name.
 func ValidName(s string) bool { return reName.MatchString(s) }
 
+// reVersion is the grammar of a pkg version: VERSION[_REVISION][,EPOCH]. VERSION
+// is made of letters, digits, dots and plus signs (so 1.0.rc1 and 15.0p1 are
+// fine); a hyphen is not allowed, because name-version file names and pkg's own
+// name/version splitting would become ambiguous (the ports framework forbids it
+// too); an underscore starts the numeric revision and a comma the numeric epoch.
+var reVersion = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.+]*(_[0-9]+)?(,[0-9]+)?$`)
+
+// ValidVersion reports whether s is a valid pkg version.
+func ValidVersion(s string) bool { return reVersion.MatchString(s) }
+
 func contains(l []string, v string) bool {
 	for _, x := range l {
 		if x == v {

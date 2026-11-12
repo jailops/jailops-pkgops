@@ -132,6 +132,9 @@ func TestServicePackage(t *testing.T) {
 	if pd := p.Scripts["pre-deinstall"]; !strings.Contains(pd, "/usr/local/etc/rc.d/myservice onestop") {
 		t.Errorf("pre-deinstall: %q", pd)
 	}
+	if po := p.Scripts["post-install"]; !strings.Contains(po, "/usr/local/etc/rc.d/myservice onestatus") || !strings.Contains(po, "/usr/local/etc/rc.d/myservice onerestart") {
+		t.Errorf("post-install: %q", po)
+	}
 	if len(s.Users) != 1 || len(s.Files) != 0 {
 		t.Error("Package modified the spec")
 	}
@@ -178,4 +181,61 @@ func TestServiceInvalid(t *testing.T) {
 	}
 	// coexistence with a hand-written service is fine
 	svcSpec(t, "service: {name: x, command: /bin/x}\nservices: [{name: y, content: \"#!/bin/sh\"}]\n")
+}
+
+// The generated scripts keep a running service up through an upgrade and stop it
+// on removal. The shell text is run with a fake rc.d script, as pkg(8) would run
+// it: PKG_UPGRADE set means an upgrade (pkg-script(5)).
+func TestServiceScriptsOnUpgradeAndRemoval(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	s := svcSpec(t, "service: {name: myservice, command: /usr/local/bin/myservice}\n")
+	p, err := s.Package(BuildOptions{BaseDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	rc := filepath.Join(dir, "myservice")
+	// a fake rc.d script: records the command, answers onestatus by the file "running"
+	fake := "#!/bin/sh\necho \"$1\" >> " + log + "\ncase \"$1\" in onestatus) [ -e " + filepath.Join(dir, "running") + " ];; esac\n"
+	if err := os.WriteFile(rc, []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(phase string, env ...string) string {
+		t.Helper()
+		os.Remove(log)
+		script := strings.ReplaceAll(p.Scripts[phase], "/usr/local/etc/rc.d/myservice", rc)
+		cmd := exec.Command(sh, "-c", script)
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, env...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v: %s", phase, err, out)
+		}
+		b, _ := os.ReadFile(log)
+		return strings.TrimSpace(strings.ReplaceAll(string(b), "\n", " "))
+	}
+	running := filepath.Join(dir, "running")
+	os.WriteFile(running, nil, 0o644)
+
+	if got := run("pre-deinstall"); got != "onestop" {
+		t.Errorf("removal must stop the service, calls: %q", got)
+	}
+	if got := run("pre-deinstall", "PKG_UPGRADE=1"); got != "" {
+		t.Errorf("an upgrade must not stop the service, calls: %q", got)
+	}
+	if got := run("pre-deinstall", "PKG_ROOTDIR=/mnt/jail"); got != "" {
+		t.Errorf("an install into another root must not touch the host's service, calls: %q", got)
+	}
+	if got := run("post-install", "PKG_UPGRADE=1"); got != "onestatus onerestart" {
+		t.Errorf("an upgrade of a running service must restart it, calls: %q", got)
+	}
+	if got := run("post-install"); got != "" {
+		t.Errorf("a fresh install must not start or restart the service, calls: %q", got)
+	}
+	os.Remove(running)
+	if got := run("post-install", "PKG_UPGRADE=1"); got != "onestatus" {
+		t.Errorf("an upgrade of a stopped service must leave it stopped, calls: %q", got)
+	}
 }

@@ -180,3 +180,16 @@ func TestSymlinks(t *testing.T) {
 		t.Errorf("retargeted symlink accepted: %v", err)
 	}
 }
+
+func TestValidVersion(t *testing.T) {
+	for _, v := range []string{"1", "0.1.0", "1.0.rc1", "15.0p1", "2.56.0", "1.2_3", "1.2_3,1", "1.30.6,3", "20260101", "3.15.0_2", "1.0+git"} {
+		if !pkgfile.ValidVersion(v) {
+			t.Errorf("%q must be a valid version", v)
+		}
+	}
+	for _, v := range []string{"", "1.0-rc1", "1 0", " 1", "1.0_", "1.0,", "_1", ",1", "1.0_rc", "1.0,x", "1/0", "1:0", "-1", ".1", "1.0_1_2"} {
+		if pkgfile.ValidVersion(v) {
+			t.Errorf("%q must be refused", v)
+		}
+	}
+}

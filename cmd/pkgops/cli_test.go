@@ -94,3 +94,60 @@ func TestFetchAndServeTrustFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestLintCommand(t *testing.T) {
+	recipe := t.TempDir()
+	write := func(p, c string) {
+		full := filepath.Join(recipe, filepath.FromSlash(p))
+		os.MkdirAll(filepath.Dir(full), 0o755)
+		os.WriteFile(full, []byte(c), 0o755)
+	}
+	write("pkgops.yaml", "name: demo\nversion: \"1.0\"\ncomment: demo\nmaintainer: a@b.c\nwww: https://example.com\nabi: FreeBSD:15:amd64\n"+
+		"services:\n  - {name: demo, source: src/packaging/rc.d/demo}\n")
+	write("src/packaging/rc.d/demo", "# PROVIDE: demo\n# REQUIRE: DAEMON\n")
+	write("src/packaging/rc.d/demo_revert", "# PROVIDE: demo_revert\n")
+
+	var out strings.Builder
+	// a warning only: exit 0 by default, 1 with --fail-on warning
+	if err := cmdLint([]string{"--recipe", recipe}, &out); err != nil {
+		t.Errorf("a warning must not fail by default: %v", err)
+	}
+	if !strings.Contains(out.String(), "packaging/rc.d/demo_revert is in the source tree but no recipe installs it") {
+		t.Errorf("output: %s", out.String())
+	}
+	out.Reset()
+	if err := cmdLint([]string{"--recipe", recipe, "--fail-on", "warning"}, &out); err != exitCode(1) {
+		t.Errorf("--fail-on warning: %v", err)
+	}
+	out.Reset()
+	if err := cmdLint([]string{"--recipe", recipe, "-o", "json"}, &out); err != nil || !strings.Contains(out.String(), `"rule": "packaging-file"`) || !strings.Contains(out.String(), `"warnings": 1`) {
+		t.Errorf("json: %v %s", err, out.String())
+	}
+	// fixed: nothing left to say
+	write("pkgops.yaml", "name: demo\nversion: \"1.0\"\ncomment: demo\nmaintainer: a@b.c\nwww: https://example.com\nabi: FreeBSD:15:amd64\n"+
+		"services:\n  - {name: demo, source: src/packaging/rc.d/demo}\n  - {name: demo_revert, source: src/packaging/rc.d/demo_revert}\n")
+	out.Reset()
+	if err := cmdLint([]string{"--recipe", recipe, "--fail-on", "warning"}, &out); err != nil || !strings.Contains(out.String(), "no findings") {
+		t.Errorf("clean: %v %s", err, out.String())
+	}
+	// an error-level finding and a manifest that does not load both exit 1; bad flags exit 2
+	write("pkgops.yaml", "name: demo\nversion: \"1.0-rc1\"\n")
+	out.Reset()
+	if err := cmdLint([]string{"--recipe", recipe}, &out); err != exitCode(1) || !strings.Contains(out.String(), "[manifest]") {
+		t.Errorf("bad manifest: %v %s", err, out.String())
+	}
+	for _, bad := range [][]string{{"--fail-on", "never"}, {"-o", "yaml"}, {"extra"}, {"--nope"}} {
+		out.Reset()
+		if err := cmdLint(bad, &out); err != exitCode(2) {
+			t.Errorf("%v must be a usage error, got %v", bad, err)
+		}
+	}
+}
+
+// The example recipe is what the README tells people to copy: it must lint clean.
+func TestExampleRecipeLintsClean(t *testing.T) {
+	var out strings.Builder
+	if err := cmdLint([]string{"--recipe", "../../examples/hello", "--fail-on", "warning"}, &out); err != nil {
+		t.Errorf("examples/hello: %v\n%s", err, out.String())
+	}
+}
