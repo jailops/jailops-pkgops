@@ -6,6 +6,8 @@ and `.goreleaser.yaml` publishes the GitHub release notes from the commits.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-18
+
 ### Security
 - The static side serves only distribution files: `pkgops-index.json`, a public key `NAME.pub` at the root, the
   catalogs of `ABI/CHANNEL/` and `ABI/CHANNEL/All/*.pkg`. Any other file under the repository root answers 404, and
