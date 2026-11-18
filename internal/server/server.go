@@ -15,6 +15,8 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"time"
 
 	"jailops.net/pkgops/internal/admin"
 	"jailops.net/pkgops/internal/cfaccess"
@@ -40,6 +42,16 @@ type Config struct {
 	Keep int
 	// MaxUpload bounds a single upload in bytes (default 512 MiB).
 	MaxUpload int64
+	// UploadTimeout is the longest a single upload may take to arrive
+	// (default 30 minutes): a client that stalls is cut off.
+	UploadTimeout time.Duration
+	// MaxUploads is how many uploads are accepted at the same time (default
+	// 4); another one is answered 503 with Retry-After.
+	MaxUploads int
+	// UploadBudget bounds the bytes of all uploads in flight (default 2 GiB),
+	// counted from the declared Content-Length; an upload of unknown length
+	// counts as MaxUpload. It bounds the temporary files on disk.
+	UploadBudget int64
 	// Logger receives one line per write operation (default slog.Default()).
 	Logger *slog.Logger
 	// UI serves the embedded web UI at /ui/ (and redirects / there) when it
@@ -86,6 +98,10 @@ type Server struct {
 	mux  *http.ServeMux
 	log  *slog.Logger
 	ui   fs.FS
+
+	upMu       sync.Mutex // guards the two counters of the uploads in flight
+	upCount    int
+	upInFlight int64
 }
 
 // reader is the read side shared by the local registry and a published site.
@@ -109,6 +125,15 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.MaxUpload <= 0 {
 		cfg.MaxUpload = 512 << 20
+	}
+	if cfg.UploadTimeout <= 0 {
+		cfg.UploadTimeout = 30 * time.Minute
+	}
+	if cfg.MaxUploads <= 0 {
+		cfg.MaxUploads = 4
+	}
+	if cfg.UploadBudget <= 0 {
+		cfg.UploadBudget = 2 << 30
 	}
 	s := &Server{cfg: cfg, mux: http.NewServeMux(), log: cfg.Logger}
 	if s.log == nil {
@@ -198,10 +223,8 @@ func (s *Server) Handler() http.Handler {
 type noDirFS struct{ http.FileSystem }
 
 func (n noDirFS) Open(name string) (http.File, error) {
-	for _, el := range strings.Split(name, "/") {
-		if strings.HasPrefix(el, ".") && el != "" {
-			return nil, os.ErrNotExist // hides temp files, staging dirs and anything dotted
-		}
+	if !servable(strings.TrimPrefix(path.Clean("/"+name), "/")) {
+		return nil, os.ErrNotExist // only distribution files: no keys, tokens, temp files, staging dirs or listings
 	}
 	f, err := n.FileSystem.Open(name)
 	if err != nil {
@@ -462,6 +485,24 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	reserve := r.ContentLength
+	if reserve < 0 {
+		reserve = s.cfg.MaxUpload
+	}
+	if reserve > s.cfg.MaxUpload {
+		fail(w, http.StatusRequestEntityTooLarge, "upload exceeds %d bytes", s.cfg.MaxUpload)
+		return
+	}
+	if !s.reserveUpload(reserve) {
+		w.Header().Set("Retry-After", "10")
+		fail(w, http.StatusServiceUnavailable, "too many uploads in flight: try again shortly")
+		return
+	}
+	defer s.releaseUpload(reserve)
+	// a client that stalls is cut off: the whole body has to arrive in UploadTimeout
+	if err := http.NewResponseController(w).SetReadDeadline(time.Now().Add(s.cfg.UploadTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		s.log.Warn("upload deadline not set", "err", err)
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxUpload)
 	tmp, err := os.CreateTemp("", "pkgops-upload-*.pkg")
 	if err != nil {
@@ -511,6 +552,26 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		pruned = []string{}
 	}
 	writeJSON(w, http.StatusCreated, sdk.Uploaded{Package: out, Pruned: pruned})
+}
+
+// reserveUpload takes a slot and n bytes of the upload budget, or says there is
+// none.
+func (s *Server) reserveUpload(n int64) bool {
+	s.upMu.Lock()
+	defer s.upMu.Unlock()
+	if s.upCount >= s.cfg.MaxUploads || s.upInFlight+n > s.cfg.UploadBudget {
+		return false
+	}
+	s.upCount++
+	s.upInFlight += n
+	return true
+}
+
+func (s *Server) releaseUpload(n int64) {
+	s.upMu.Lock()
+	s.upCount--
+	s.upInFlight -= n
+	s.upMu.Unlock()
 }
 
 func (s *Server) remove(w http.ResponseWriter, r *http.Request) {

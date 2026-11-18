@@ -6,6 +6,31 @@ and `.goreleaser.yaml` publishes the GitHub release notes from the commits.
 
 ## [Unreleased]
 
+### Security
+- The static side serves only distribution files: `pkgops-index.json`, a public key `NAME.pub` at the root, the
+  catalogs of `ABI/CHANNEL/` and `ABI/CHANNEL/All/*.pkg`. Any other file under the repository root answers 404, and
+  `serve` refuses to start with `--key`, `--token-file` or `--tls-key` inside the root.
+- `serve` refuses upload tokens over plain HTTP on a non-loopback address without `--tls-cert`; `--allow-plain-http`
+  accepts it behind a TLS terminator you trust. The Go client, `pkgops push` and `registry` send a token only over
+  https or to a loopback host (`--allow-plain-http`, `sdk.Client.AllowPlainHTTP`) and never follow a redirect to
+  another origin with it.
+- An upload has a time limit (`--upload-timeout`, 30m), at most `--max-uploads` (4) run at the same time and
+  `--upload-budget-mb` (2048) bounds those in flight; the next gets 503 with `Retry-After`.
+- The release workflow pins every action to a commit SHA; CI fails on an unpinned third-party action.
+
+### Fixed
+- A failed update no longer removes package files that a published catalog advertises. The first catalog in place is
+  the commit point of an ABI: a later failure of the same update (another ABI, the index write) keeps those files,
+  and the error names what was published and what was not.
+- A replaced archive manifest exists in full (`archive.json.new`) before the old one is deleted. A release without
+  `archive.json` is listed from its package assets instead of being skipped, and an archive deletion stops when a
+  manifest cannot be read instead of treating it as empty, which deleted the whole release.
+
+### Added
+- `pkgops verify --all ROOT [--pubkey KEY] [--json]` checks every ABI and channel and the index at once and changes
+  nothing: catalogs and signatures, advertised packages, files the index lists, the index against the catalogs,
+  pruned files still on the site. Exit status 1 on any problem; the JSON report is for a publish workflow.
+
 ## [0.3.0] - 2026-11-12
 
 ### Added

@@ -139,6 +139,9 @@ type (
 	Repository = repository.Repository
 	// RepoCheck is the outcome of VerifyRepository.
 	RepoCheck = repository.RepoCheck
+	// Report is the outcome of VerifyAll; Finding is one problem in it.
+	Report  = repository.Report
+	Finding = repository.Finding
 	// Problem is a package file Repository.Scan could not read.
 	Problem = repository.Problem
 )
@@ -182,6 +185,14 @@ func GenerateRSAKey(bits int) (*rsa.PrivateKey, error) { return repository.Gener
 
 // CompareVersions orders pkg-style versions; it returns -1, 0 or 1.
 func CompareVersions(a, b string) int { return repository.CompareVersions(a, b) }
+
+// VerifyAll checks a whole repository root, every ABI and channel at once,
+// and changes nothing: catalogs, packages, the index and what they say about
+// each other. Findings are in the Report; the error is for a check that could
+// not run.
+func VerifyAll(root string, pubPEM []byte) (*Report, error) {
+	return repository.VerifyAll(root, pubPEM)
+}
 
 // VerifyRepository checks one repository directory the way a pkg client would.
 func VerifyRepository(dir string, pubPEM []byte) (*RepoCheck, error) {

@@ -21,6 +21,7 @@ import (
 	"jailops.net/pkgops/internal/archive"
 	"jailops.net/pkgops/internal/cfaccess"
 	"jailops.net/pkgops/internal/config"
+	"jailops.net/pkgops/internal/fsutil"
 	"jailops.net/pkgops/internal/mtls"
 	"jailops.net/pkgops/internal/policy"
 	"jailops.net/pkgops/internal/source"
@@ -47,6 +48,10 @@ func cmdServe(ctx context.Context, args []string) error {
 	keep := fs.Int("keep", 0, "retain only the newest N versions per package (0 = all)")
 	files := fs.Bool("files-list", false, "also write files.pkg")
 	max := fs.Int64("max-upload-mb", 512, "maximum upload size in MiB")
+	uploadTimeout := fs.Duration("upload-timeout", 30*time.Minute, "longest a single upload may take to arrive")
+	maxUploads := fs.Int("max-uploads", 4, "uploads accepted at the same time (more get 503 and Retry-After)")
+	uploadBudget := fs.Int64("upload-budget-mb", 2048, "total MiB of uploads in flight at the same time, counted from the declared size (a chunked upload counts as --max-upload-mb)")
+	plainHTTP := fs.Bool("allow-plain-http", false, "accept upload tokens over plain HTTP on a non-loopback address (only behind a TLS terminator you trust)")
 	webUI := fs.Bool("ui", false, "serve the web UI at /ui/ (it is in the binary and off by default)")
 	policyFile := fs.String("policy", "", "repository policy (default: pkgops-repo.yaml in --repo)")
 	src := fs.String("source", "", "read-through mode: the published site URL (read-only; instead of --repo)")
@@ -94,7 +99,8 @@ func cmdServe(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	cfg := serve.Config{Keep: *keep, MaxUpload: *max << 20, UI: *webUI, DownloadURL: *downloadURL, KeyURL: *keyURL}
+	cfg := serve.Config{Keep: *keep, MaxUpload: *max << 20, UploadTimeout: *uploadTimeout, MaxUploads: *maxUploads, UploadBudget: *uploadBudget << 20,
+		UI: *webUI, DownloadURL: *downloadURL, KeyURL: *keyURL}
 	adm := &admin.Service{Workflow: *workflow}
 	if *src != "" {
 		if !strings.HasPrefix(*src, "https://") && !strings.HasPrefix(*src, "http://") {
@@ -166,8 +172,11 @@ func cmdServe(ctx context.Context, args []string) error {
 	if len(cfg.Tokens) > 0 && signer == nil && cfg.Source == nil {
 		fmt.Fprintln(os.Stderr, "warning: uploads enabled but no --key: the repository will be unsigned")
 	}
-	if *tlsCert == "" && len(cfg.Tokens) > 0 && !isLoopbackListen(*listen) {
-		fmt.Fprintln(os.Stderr, "warning: upload tokens over plain HTTP on a non-loopback address: use --tls-cert/--tls-key or put TLS in front")
+	if err := checkPlainHTTP(*tlsCert, *listen, len(cfg.Tokens), *plainHTTP); err != nil {
+		return err
+	}
+	if err := checkSecretsOutsideRoot(*dir, map[string]string{"--key": *key, "--token-file": *tokenFile, "--tls-key": *tlsKey}); err != nil {
+		return err
 	}
 	srv, err := serve.New(cfg)
 	if err != nil {
@@ -221,6 +230,29 @@ func checkTransport(listen, tlsCert, tlsKey, clientCA, crl string) error {
 	}
 	if crl != "" && clientCA == "" {
 		return errors.New("--crl needs --client-ca")
+	}
+	return nil
+}
+
+// checkPlainHTTP refuses upload tokens over plain HTTP on a non-loopback
+// address: the secret would cross the network in the clear.
+func checkPlainHTTP(tlsCert, listen string, tokens int, allow bool) error {
+	if tlsCert == "" && tokens > 0 && !isLoopbackListen(listen) && !allow {
+		return errors.New("refusing to take upload tokens over plain HTTP on a non-loopback address: use --tls-cert/--tls-key, listen on loopback or a unix socket behind your TLS terminator, or pass --allow-plain-http")
+	}
+	return nil
+}
+
+// checkSecretsOutsideRoot refuses a key or token file that sits inside the
+// repository root, the tree that is published.
+func checkSecretsOutsideRoot(root string, files map[string]string) error {
+	if root == "" {
+		return nil
+	}
+	for _, flag := range []string{"--key", "--token-file", "--tls-key"} {
+		if f := files[flag]; f != "" && fsutil.Within(root, f) {
+			return fmt.Errorf("%s %s is inside the repository root %s: keep keys and token files outside the tree that is published", flag, f, root)
+		}
 	}
 	return nil
 }
@@ -336,6 +368,7 @@ func cmdPush(ctx context.Context, args []string) error {
 	fs := newFlags("push")
 	url := fs.String("url", "", "registry base URL, e.g. https://pkg.example.org")
 	token := fs.String("token", os.Getenv("PKGOPS_TOKEN"), "API token (or $PKGOPS_TOKEN)")
+	plain := fs.Bool("allow-plain-http", false, "send the token over plain HTTP to a host that is not loopback")
 	tc := addTLSClientFlags(fs)
 	if err := fs.Parse(reorder(args)); err != nil {
 		return err
@@ -347,7 +380,7 @@ func cmdPush(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	c := &sdk.Client{BaseURL: *url, Token: *token, HTTP: hc}
+	c := &sdk.Client{BaseURL: *url, Token: *token, HTTP: hc, AllowPlainHTTP: *plain}
 	for _, f := range fs.Args() {
 		if _, err := c.Upload(ctx, f); err != nil {
 			return fmt.Errorf("%s: %w", f, err)
@@ -365,6 +398,7 @@ func cmdRegistry(ctx context.Context, args []string) error {
 	fs := newFlags("registry " + sub)
 	url := fs.String("url", os.Getenv("PKGOPS_URL"), "registry base URL (or $PKGOPS_URL)")
 	token := fs.String("token", os.Getenv("PKGOPS_TOKEN"), "API token (or $PKGOPS_TOKEN)")
+	plain := fs.Bool("allow-plain-http", false, "send the token over plain HTTP to a host that is not loopback")
 	abi := fs.String("abi", "", "ABI filter / selector")
 	yes := fs.Bool("yes", false, "delete without asking")
 	tc := addTLSClientFlags(fs)
@@ -378,7 +412,7 @@ func cmdRegistry(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	c := &sdk.Client{BaseURL: *url, Token: *token, HTTP: hc}
+	c := &sdk.Client{BaseURL: *url, Token: *token, HTTP: hc, AllowPlainHTTP: *plain}
 	switch sub {
 	case "status":
 		st, err := c.Status(ctx)

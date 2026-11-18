@@ -213,6 +213,7 @@ pkgops archive push --repo OWNER/REPO         archive every published .pkg in Gi
 pkgops archive prune --repo OWNER/REPO ...    delete from the archive (separate, confirmed, audited)
 pkgops verify-archive --repo OWNER/REPO --from URL|DIR
 pkgops verify  <repo-dir> [--pubkey repo.pub]
+pkgops verify  --all <repo-root> [--pubkey repo.pub] [--json]   every ABI and channel and the index, read-only
 pkgops publish --from DIR --to DEST [--delete] [--ssh "ssh -i key"]
 pkgops conf    --name NAME --url URL [--pubkey PATH | --fingerprints DIR] [--client-cert P --client-key P [--ca-cert P]]
 pkgops pki     init | issue server|client | revoke | list | crl | show      private CA for a private registry
@@ -345,7 +346,8 @@ private nginx, a chroot for user creation):
   pkg, documented in docs/format.md).
 - amd64 and aarch64 only.
 - Single writer per repository directory.
-- `pkgops serve` speaks plain HTTP: terminate TLS in front of it.
+- `pkgops serve` speaks plain HTTP unless given `--tls-cert`: with upload tokens it refuses a non-loopback address
+  without TLS (terminate TLS in front of it on loopback or a unix socket).
 
 ## Layout
 
