@@ -74,6 +74,9 @@ type Repository struct {
 	PruneManifest *prune.Manifest
 
 	mu sync.Mutex
+	// onPublish, set by Update, is called when the first catalog of an ABI
+	// is in place.
+	onPublish func(abi string)
 }
 
 func (r *Repository) channel() string {
@@ -202,16 +205,28 @@ func (c *ctxReader) Read(p []byte) (int, error) {
 }
 
 // Update adds the packages and re-indexes every ABI they touch.
+//
+// The first rename of a catalog into place is the commit point of an ABI: from
+// then on a catalog advertises the package files of that ABI, so they are never
+// removed again, whatever fails afterwards. A failure before that point of an
+// ABI removes only the files this call created for ABIs that were not
+// published; an ABI published earlier in the same call keeps its files and its
+// catalog, and the error names the ABIs that were not.
 func (r *Repository) Update(ctx context.Context, pkgFiles ...string) ([]*Info, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	type made struct{ path, abi string }
 	var infos []*Info
-	var created []string
+	var created []made
+	published := map[string]bool{}
 	// A failed update must not leave half of a batch in All/: remove what this
-	// call created (files that were already there are never touched).
+	// call created for an ABI that no catalog advertises (files that were
+	// already there are never touched).
 	rollback := func() {
 		for _, c := range created {
-			os.Remove(c)
+			if !published[c.abi] {
+				os.Remove(c.path)
+			}
 		}
 	}
 	touched := map[string]bool{}
@@ -221,11 +236,11 @@ func (r *Repository) Update(ctx context.Context, pkgFiles ...string) ([]*Info, e
 			rollback()
 			return nil, err
 		}
+		abi, _ := pkgfile.ParseABI(info.ABI)
 		if c != "" {
-			created = append(created, c)
+			created = append(created, made{c, abi.String()})
 		}
 		infos = append(infos, info)
-		abi, _ := pkgfile.ParseABI(info.ABI)
 		touched[abi.String()] = true
 	}
 	if len(pkgFiles) == 0 {
@@ -242,13 +257,33 @@ func (r *Repository) Update(ctx context.Context, pkgFiles ...string) ([]*Info, e
 		abis = append(abis, a)
 	}
 	sort.Strings(abis)
+	r.onPublish = func(a string) { published[a] = true }
+	defer func() { r.onPublish = nil }()
 	for _, a := range abis {
 		if err := r.reindex(ctx, a, nil); err != nil {
 			rollback()
+			if len(published) > 0 {
+				return nil, fmt.Errorf("%w (catalogs already published: %s; not published: %s)", err,
+					strings.Join(listOf(abis, published, true), ", "), strings.Join(listOf(abis, published, false), ", "))
+			}
 			return nil, err
 		}
 	}
 	return infos, nil
+}
+
+// listOf returns the abis whose published state is want, "none" when there are none.
+func listOf(abis []string, published map[string]bool, want bool) []string {
+	var out []string
+	for _, a := range abis {
+		if published[a] == want {
+			out = append(out, a)
+		}
+	}
+	if len(out) == 0 {
+		out = []string{"none"}
+	}
+	return out
 }
 
 // Reindex rebuilds and (if a Signer is set) signs the catalog of one ABI from
@@ -629,9 +664,12 @@ func (r *Repository) reindex(ctx context.Context, abi string, exclude map[string
 	if !r.FileList {
 		_ = os.Remove(filepath.Join(dir, "files.pkg"))
 	}
-	for _, name := range order {
+	for n, name := range order {
 		if err := os.Rename(filepath.Join(stage, name), filepath.Join(dir, name)); err != nil {
 			return err
+		}
+		if n == 0 && r.onPublish != nil {
+			r.onPublish(abi) // the first catalog in place advertises the package files of this ABI
 		}
 		crashPoint("reindex:renamed:" + name)
 	}

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -78,6 +79,7 @@ usage:
   pkgops archive prune --repo OWNER/REPO --abi A --name N --version V --reason R --confirm "delete from archive"
   pkgops verify-archive --repo OWNER/REPO --from URL|DIR [--prune prune.yaml]
   pkgops verify  <repo-dir> [--pubkey repo.pub]
+  pkgops verify  --all <repo-root> [--pubkey repo.pub] [--json]   every ABI and channel at once, with the index; changes nothing
   pkgops publish --from DIR --to DEST [--delete] [--ssh "ssh -i key"]
   pkgops conf    --name NAME --url URL [--pubkey PATH | --fingerprints DIR] [--client-cert PATH --client-key PATH [--ca-cert PATH]]
   pkgops pki     init|issue|revoke|list|crl|show   private CA for a private registry (mTLS); see 'pkgops pki'
@@ -380,11 +382,16 @@ func mustAbs(p string) string {
 func cmdVerify(args []string) error {
 	fs := newFlags("verify")
 	pub := fs.String("pubkey", "", "public key PEM to verify catalog signatures against")
+	all := fs.Bool("all", false, "the argument is the repository root: check every ABI and channel and the index, changing nothing")
+	asJSON := fs.Bool("json", false, "with --all: print the report as JSON (the exit status says whether it is clean)")
 	if err := fs.Parse(reorder(args)); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return errors.New("usage: pkgops verify <repo-dir> [--pubkey repo.pub]")
+		return errors.New("usage: pkgops verify [--all [--json]] <repo-dir> [--pubkey repo.pub]")
+	}
+	if *asJSON && !*all {
+		return errors.New("--json applies to --all")
 	}
 	var pem []byte
 	if *pub != "" {
@@ -393,12 +400,50 @@ func cmdVerify(args []string) error {
 			return err
 		}
 	}
+	if *all {
+		rep, err := pkgops.VerifyAll(fs.Arg(0), pem)
+		if err != nil {
+			return err
+		}
+		if *asJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(rep); err != nil {
+				return err
+			}
+		} else {
+			printReport(rep)
+		}
+		if !rep.OK {
+			return fmt.Errorf("%d problem(s) in %s", len(rep.Problems), rep.Root)
+		}
+		return nil
+	}
 	res, err := pkgops.VerifyRepository(fs.Arg(0), pem)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("ok: %d package(s), signature: %q (verified against key: %v)\n", res.Packages, res.Signature, pem != nil)
 	return nil
+}
+
+func printReport(rep *pkgops.Report) {
+	for _, r := range rep.Repos {
+		fmt.Printf("%s/%s: %d package(s) advertised, %d file(s), signature %q\n", r.ABI, r.Channel, r.Packages, r.Files, r.Signature)
+	}
+	if rep.Index.Present {
+		fmt.Printf("index: %d package(s), %d pruned\n", rep.Index.Packages, rep.Index.Pruned)
+	}
+	for _, p := range rep.Problems {
+		where := p.File
+		if p.ABI != "" {
+			where = p.ABI + " " + where
+		}
+		fmt.Printf("PROBLEM %-16s %s: %s\n", p.Kind, strings.TrimSpace(where), p.Message)
+	}
+	if rep.OK {
+		fmt.Printf("ok (signatures verified against a key: %v)\n", rep.Verified)
+	}
 }
 
 // reorder lets flags follow positional arguments (flag stops at the first

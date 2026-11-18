@@ -61,12 +61,33 @@ upload; `admin` can upload and delete. The scopes `upload` and `delete` can be
 listed instead of a role. Deleting needs an admin token. Tokens are stored as
 SHA-256 only. With no token file the server is read-only.
 
-**Reads.** The repository directory is served as plain static files with
-correct content types, `Last-Modified`/ETag and range requests; packages are
-`immutable`, catalogs `no-cache`; no directory listings, dotfiles hidden. nginx
-on the same directory is an equivalent read path. `serve` speaks plain HTTP unless
-you give it `--tls-cert/--tls-key`; for a private registry with client
+**Reads.** The distribution files of the repository directory are served as
+plain static files with correct content types, `Last-Modified`/ETag and range
+requests; packages are `immutable`, catalogs `no-cache`. Only these paths
+answer: `pkgops-index.json`, a public key `NAME.pub` at the root,
+`ABI/CHANNEL/{meta,meta.conf,packagesite.pkg,data.pkg,files.pkg}` and
+`ABI/CHANNEL/All/NAME-VERSION.pkg`. Everything else under the root, whatever it
+is called, answers 404, and there are no directory listings. `serve` refuses to
+start with `--key`, `--token-file` or `--tls-key` inside the repository root.
+The static side is public by design (a pkg client cannot present a Cloudflare
+Access token); Access, tokens and roles guard `/api/`. nginx on the same
+directory is an equivalent read path: serve only those paths there too.
+
+**Transport.** `serve` speaks plain HTTP unless you give it `--tls-cert` and
+`--tls-key`. With upload tokens it refuses to start on a non-loopback TCP
+address without TLS; listen on loopback or a unix socket behind your TLS
+terminator, or pass `--allow-plain-http` when the network in between is yours.
+The Go client and `pkgops push` / `registry` send a token only over `https://`
+or to a loopback host (`--allow-plain-http` for the exception), and never follow
+a redirect to another origin with it. For a private registry with client
 certificates see [private-registry.md](private-registry.md).
+
+**Upload limits.** An upload is at most `--max-upload-mb` (512), must arrive
+within `--upload-timeout` (30m), and at most `--max-uploads` (4) are accepted at
+the same time; the next gets `503` with `Retry-After`. `--upload-budget-mb`
+(2048) bounds the declared sizes of all uploads in flight, which bounds the
+temporary files on disk; an upload of unknown length counts as
+`--max-upload-mb`.
 
 **API** (`/api/v1`, JSON; Go client in `jailops.net/pkgops/sdk`):
 

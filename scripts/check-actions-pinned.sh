@@ -3,10 +3,11 @@
 #
 # Every third-party action a workflow or composite action uses must be pinned to a full 40-hex commit SHA:
 #   uses: owner/repo@0123456789abcdef0123456789abcdef01234567   # v1.2.3
-# Allowed without a SHA: first-party actions (ACTIONS_FIRST_PARTY, default "actions/ github/"), local actions
-# (./path) and docker:// images. Default arguments: .github and action.yml when they exist.
+# release.yml, the workflow that publishes, pins every action, first-party ones too. Allowed without a SHA elsewhere:
+# first-party actions (ACTIONS_FIRST_PARTY, default "actions/ github/"), local actions (./path) and docker:// images.
+# Default arguments: .github and action.yml when they exist.
 #
-# ACTIONS_PIN_ENFORCE=1 fails on an unpinned action; anything else only warns (exit 0). docs/supply-chain.md has the
+# ACTIONS_PIN_ENFORCE=1 fails on an unpinned action (ci.yml sets it); anything else only warns (exit 0). docs/supply-chain.md has the
 # commands that find the SHA of each tag.
 set -eu
 FIRST_PARTY=${ACTIONS_FIRST_PARTY:-"actions/ github/"}
@@ -32,6 +33,7 @@ for f in $files; do
     for p in $FIRST_PARTY; do
       case "$v" in "$p"*) first=1 ;; esac
     done
+    case "$f" in */release.yml) first=0 ;; esac
     [ "$first" = 1 ] && continue
     ref=${v##*@}
     if [ "$ref" = "$v" ] || ! echo "$ref" | grep -Eq '^[0-9a-f]{40}$'; then

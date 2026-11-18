@@ -173,10 +173,22 @@ successful build:
 - restore: `pkgops fetch --from github-releases:OWNER/REPO --into site --prune
   prune.yaml` rebuilds the baseline from the archive (verified against the
   manifests), used automatically by `--source auto` when the site has no index;
+- `pkgops verify --all site --pubkey repo.pub --json` checks a whole site before
+  it is signed or published: every catalog parses and verifies, every advertised
+  package is there with its size and checksum, every file the index lists is
+  there with its bytes, the index and the catalogs agree, and nothing recorded as
+  pruned is still on the site. It changes nothing; the exit status is 1 on any
+  problem and the JSON report (`ok`, `repos`, `index`, `problems` with a `kind`
+  each) is what a publish workflow requires.
 - `pkgops verify-archive --repo OWNER/REPO --from https://pkg.example.org`
   lists what is on Pages but not archived, archived but neither on Pages nor
   pruned, sha256 mismatches, and what was pruned from Pages and is still (or no
   longer) archived.
+
+  A release whose `archive.json` is gone is read from its package assets, and
+  from `archive.json.new`, the complete copy a replacement leaves until it is done;
+  a manifest that exists and cannot be read stops a deletion before anything is
+  removed.
 
 Pruning never touches the archive. **Deleting from the archive is separate and
 deliberate**: `pkgops archive prune --repo OWNER/REPO --abi A --name N --version V

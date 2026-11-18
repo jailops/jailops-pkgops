@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -192,6 +193,43 @@ type Client struct {
 	BaseURL string // e.g. https://pkg.example.org
 	Token   string // bearer token; only needed for writes and /session
 	HTTP    *http.Client
+	// AllowPlainHTTP lets the client send the token over http:// to a host that
+	// is not loopback. Without it such a request is refused before anything is
+	// sent. https:// and loopback addresses need nothing.
+	AllowPlainHTTP bool
+}
+
+// ErrInsecureTransport is returned instead of sending a token over plain HTTP
+// to a host that is not loopback.
+var ErrInsecureTransport = errors.New("sdk: refusing to send a token over plain HTTP to a host that is not loopback (use https, or set AllowPlainHTTP)")
+
+// checkTransport refuses a token on plain HTTP unless the host is loopback.
+func (c *Client) checkTransport(u *url.URL) error {
+	if c.Token == "" || c.AllowPlainHTTP || u.Scheme == "https" {
+		return nil
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return ErrInsecureTransport
+}
+
+// sameOrigin is the CheckRedirect of a client that holds a token: a redirect
+// that changes scheme, host or port is not followed, so the token never leaves
+// the origin it was meant for.
+func sameOrigin(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	first := via[0].URL
+	if req.URL.Scheme != first.Scheme || req.URL.Host != first.Host {
+		return fmt.Errorf("sdk: refusing a redirect from %s://%s to %s://%s: the token stays with its origin", first.Scheme, first.Host, req.URL.Scheme, req.URL.Host)
+	}
+	return nil
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader, size int64, out any) error {
@@ -206,6 +244,23 @@ func (c *Client) doCT(ctx context.Context, method, path, contentType string, bod
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.BaseURL, "/")+path, body)
 	if err != nil {
 		return err
+	}
+	if err := c.checkTransport(req.URL); err != nil {
+		return err
+	}
+	if c.Token != "" {
+		cp := *hc // the caller's client is not changed
+		own := hc.CheckRedirect
+		cp.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if err := sameOrigin(req, via); err != nil {
+				return err
+			}
+			if own != nil {
+				return own(req, via)
+			}
+			return nil
+		}
+		hc = &cp
 	}
 	if body != nil {
 		req.ContentLength = size

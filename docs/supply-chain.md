@@ -14,19 +14,20 @@ release archives are verified by `checksums.txt`.
 
 ## Actions in use
 
-| action | where | owner |
-|---|---|---|
-| `actions/checkout`, `actions/setup-go`, `actions/setup-node`, `actions/cache` | `ci.yml`, `release.yml` | GitHub (first party) |
-| `goreleaser/goreleaser-action@v6` | `release.yml`, with `contents: write` | third party |
+| action | where | owner | pinned to |
+|---|---|---|---|
+| `actions/checkout`, `actions/setup-go` | `release.yml` | GitHub (first party) | commit SHA |
+| `goreleaser/goreleaser-action` | `release.yml`, with `contents: write` | third party | commit SHA |
+| `actions/checkout`, `actions/setup-go`, `actions/setup-node`, `actions/cache` | `ci.yml` | GitHub (first party) | major tag (`@v7`) |
 
-First-party `actions/*` stay on their major tag (`@v7`). A tag can be moved by its owner; for GitHub's own
-actions that is accepted here. The majors in the files were not checked against the newest releases when this was
-written (no network): check them with `gh api repos/actions/checkout/releases/latest --jq .tag_name` and so on.
+The workflow that publishes pins every action to a commit SHA, first party ones too: a tag can be moved by its
+owner, and `release.yml` is the one workflow with write access. `ci.yml` has read access only; its first party
+actions stay on their major tag. GoReleaser itself is pinned to an exact version (`version:` in `release.yml`).
 
-## Pinning a third-party action to a commit SHA
+## Pinning an action to a commit SHA
 
-A tag such as `@v6` can be moved to other code at any time; a full commit SHA cannot. To pin, on a machine with the
-GitHub CLI logged in:
+A tag such as `@v6` can be moved to other code at any time; a full commit SHA cannot. To pin or to update a pin, on
+a machine with the GitHub CLI logged in:
 
 ```sh
 # 1. the commit the tag points at now (annotated tags are resolved to the commit)
@@ -43,7 +44,8 @@ Then in `.github/workflows/release.yml`:
       - uses: goreleaser/goreleaser-action@<the 40-hex SHA from step 1>   # v6.x.y from step 2
 ```
 
-and set `ACTIONS_PIN_ENFORCE: "1"` in `ci.yml`. From then on CI fails on any third-party action that is not pinned.
+`ACTIONS_PIN_ENFORCE` is `"1"` in `ci.yml`: CI fails on any third-party action, and on any action of `release.yml`,
+that is not pinned.
 
 To update a pin later, read what changed before you move it:
 
@@ -54,9 +56,10 @@ gh api repos/goreleaser/goreleaser-action/compare/<old sha>...<new sha> --jq '.c
 ## The check
 
 `scripts/check-actions-pinned.sh` reads `.github/` and `action.yml` and reports every `uses:` of a third-party
-action that does not end in a 40-hex SHA. First party (`actions/`, `github/`), local (`./`) and `docker://` are
-allowed. `ACTIONS_PIN_ENFORCE=1` makes it fail; otherwise it only warns. `ci.yml` runs it on every push and pull
-request; the variable at the top of `ci.yml` is the only switch.
+action, and every `uses:` in `release.yml`, that does not end in a 40-hex SHA. First party (`actions/`, `github/`)
+outside `release.yml`, local (`./`) and `docker://` are allowed. `ACTIONS_PIN_ENFORCE=1` makes it fail; otherwise
+it only warns. `ci.yml` runs it on every push and pull request; the variable at the top of `ci.yml` is the only
+switch.
 
 ## For users of the pkgops action
 

@@ -220,6 +220,83 @@ func (m *Manifest) set(it Item) {
 	sort.Slice(m.Packages, func(i, j int) bool { return m.Packages[i].ABI < m.Packages[j].ABI })
 }
 
+func dropAsset(rel *ghapp.Release, name string) {
+	for i := range rel.Assets {
+		if rel.Assets[i].Name == name {
+			rel.Assets = append(rel.Assets[:i], rel.Assets[i+1:]...)
+			return
+		}
+	}
+}
+
+// splitTag returns the package name and version of an archive release tag
+// (pkg-NAME-VERSION; a version has no hyphen).
+func splitTag(tag string) (name, version string, ok bool) {
+	rest, found := strings.CutPrefix(tag, TagPrefix)
+	if !found {
+		return "", "", false
+	}
+	i := strings.LastIndex(rest, "-")
+	if i <= 0 || i == len(rest)-1 {
+		return "", "", false
+	}
+	return rest[:i], rest[i+1:], true
+}
+
+// readManifest returns the manifest of a release: archive.json, else the
+// complete copy a failed replacement left (archive.json.new), else, for a
+// release that holds package assets and no manifest, the one rebuilt from the
+// assets (their names give the ABI, GitHub or a download the sha256). A release
+// with nothing in it has an empty manifest. A manifest that exists but cannot
+// be read is an error: it is never taken for an empty one.
+func (a *Archive) readManifest(ctx context.Context, rel *ghapp.Release, name, version string) (*Manifest, error) {
+	for _, n := range []string{ManifestAsset, ManifestNext} {
+		ma := findAsset(rel, n)
+		if ma == nil {
+			continue
+		}
+		rc, err := a.GH.DownloadAsset(ctx, *ma)
+		if err != nil {
+			return nil, err
+		}
+		data, err := io.ReadAll(io.LimitReader(rc, 4<<20))
+		rc.Close()
+		if err != nil {
+			return nil, err
+		}
+		man := &Manifest{}
+		if err := json.Unmarshal(data, man); err != nil {
+			return nil, fmt.Errorf("%w: %s of %s: %v", pkgerr.ErrInvalidPackage, n, rel.TagName, err)
+		}
+		if man.Schema > SchemaVersion {
+			return nil, fmt.Errorf("%w: %s of %s uses schema %d; upgrade pkgops", pkgerr.ErrInvalidPackage, n, rel.TagName, man.Schema)
+		}
+		man.Name, man.Version = name, version
+		return man, nil
+	}
+	man := &Manifest{Schema: SchemaVersion, Name: name, Version: version}
+	for _, as := range rel.Assets {
+		abi, ok := strings.CutPrefix(as.Name, name+"-"+version+"-")
+		if !ok {
+			continue
+		}
+		abi, ok = strings.CutSuffix(abi, ".pkg")
+		if !ok {
+			continue
+		}
+		abi = strings.ReplaceAll(abi, "_", ":")
+		if p, err := pkgfile.ParseABI(abi); err != nil || p.String() != abi {
+			continue
+		}
+		sum, err := a.assetSum(ctx, as)
+		if err != nil {
+			return nil, err
+		}
+		man.set(Item{ABI: abi, Asset: as.Name, SHA256: sum, Size: as.Size})
+	}
+	return man, nil
+}
+
 func findAsset(rel *ghapp.Release, name string) *ghapp.Asset {
 	for i := range rel.Assets {
 		if rel.Assets[i].Name == name {
@@ -254,26 +331,20 @@ func (a *Archive) release(ctx context.Context, tag, name, version string) (*ghap
 	if err != nil {
 		return nil, nil, err
 	}
-	man := &Manifest{Schema: SchemaVersion, Name: name, Version: version}
-	if ma := findAsset(rel, ManifestAsset); ma != nil {
-		rc, err := a.GH.DownloadAsset(ctx, *ma)
-		if err != nil {
-			return nil, nil, err
-		}
-		data, err := io.ReadAll(io.LimitReader(rc, 4<<20))
-		rc.Close()
-		if err != nil {
-			return nil, nil, err
-		}
-		if err := json.Unmarshal(data, man); err != nil {
-			return nil, nil, fmt.Errorf("%w: %s of %s: %v", pkgerr.ErrInvalidPackage, ManifestAsset, tag, err)
-		}
-		if man.Schema > SchemaVersion {
-			return nil, nil, fmt.Errorf("%w: %s of %s uses schema %d; upgrade pkgops", pkgerr.ErrInvalidPackage, ManifestAsset, tag, man.Schema)
-		}
+	man, err := a.readManifest(ctx, rel, name, version)
+	if err != nil {
+		return nil, nil, err
 	}
 	return rel, man, nil
 }
+
+// ManifestNext is the name under which a new manifest waits while the old one
+// is replaced: GitHub cannot rename an asset, so the new content exists as a
+// complete asset before the old one is deleted.
+const ManifestNext = ManifestAsset + ".new"
+
+// manifestUploadTries is how often the final upload of a manifest is tried.
+const manifestUploadTries = 3
 
 func (a *Archive) writeManifest(ctx context.Context, rel *ghapp.Release, man *Manifest) error {
 	man.Schema = SchemaVersion
@@ -282,15 +353,45 @@ func (a *Archive) writeManifest(ctx context.Context, rel *ghapp.Release, man *Ma
 		return err
 	}
 	data = append(data, '\n')
-	if old := findAsset(rel, ManifestAsset); old != nil {
-		if err := a.GH.DeleteAsset(ctx, old.ID); err != nil {
+	upload := func(name string) error {
+		as, err := a.GH.UploadAsset(ctx, rel, name, bytes.NewReader(data), int64(len(data)), "application/json")
+		if err == nil && as != nil {
+			rel.Assets = append(rel.Assets, *as)
+		}
+		return err
+	}
+	remove := func(name string) error {
+		if as := findAsset(rel, name); as != nil {
+			if err := a.GH.DeleteAsset(ctx, as.ID); err != nil {
+				return err
+			}
+			dropAsset(rel, name)
+		}
+		return nil
+	}
+	if findAsset(rel, ManifestAsset) != nil {
+		// the new manifest exists in full before the old one goes
+		if err := remove(ManifestNext); err != nil {
+			return err
+		}
+		if err := upload(ManifestNext); err != nil {
+			return fmt.Errorf("writing the new manifest of %s (the old one is untouched): %w", rel.TagName, err)
+		}
+		if err := remove(ManifestAsset); err != nil {
 			return err
 		}
 	}
-	_, err = a.GH.UploadAsset(ctx, rel, ManifestAsset, bytes.NewReader(data), int64(len(data)), "application/json")
-	if err != nil {
-		return err
+	var upErr error
+	for try := 0; try < manifestUploadTries; try++ {
+		if upErr = upload(ManifestAsset); upErr == nil {
+			break
+		}
 	}
+	if upErr != nil {
+		return fmt.Errorf("uploading %s of %s failed after %d tries; the complete new manifest is the asset %s and is read until the next write replaces it: %w",
+			ManifestAsset, rel.TagName, manifestUploadTries, ManifestNext, upErr)
+	}
+	_ = remove(ManifestNext) // best effort: a leftover is replaced by the next write
 	var body strings.Builder
 	fmt.Fprintf(&body, "%s %s: archived package files.\n\n| ABI | file | sha256 |\n|---|---|---|\n", man.Name, man.Version)
 	for _, it := range man.Packages {
@@ -327,22 +428,13 @@ func (a *Archive) List(ctx context.Context) ([]Record, error) {
 		if !strings.HasPrefix(rel.TagName, TagPrefix) {
 			continue
 		}
-		ma := findAsset(rel, ManifestAsset)
-		if ma == nil {
-			continue // no manifest: nothing was archived properly
+		name, version, ok := splitTag(rel.TagName)
+		if !ok {
+			continue
 		}
-		rc, err := a.GH.DownloadAsset(ctx, *ma)
+		man, err := a.readManifest(ctx, rel, name, version)
 		if err != nil {
 			return nil, err
-		}
-		data, err := io.ReadAll(io.LimitReader(rc, 4<<20))
-		rc.Close()
-		if err != nil {
-			return nil, err
-		}
-		var man Manifest
-		if err := json.Unmarshal(data, &man); err != nil {
-			return nil, fmt.Errorf("%w: %s of %s: %v", pkgerr.ErrInvalidPackage, ManifestAsset, rel.TagName, err)
 		}
 		for _, it := range man.Packages {
 			r := Record{Item: it, Name: man.Name, Version: man.Version, ReleaseID: rel.ID, ReleaseURL: rel.HTMLURL}
@@ -514,15 +606,11 @@ func (a *Archive) Delete(ctx context.Context, refs []Ref, who, reason string) er
 		if err != nil {
 			return err
 		}
-		man := &Manifest{Schema: SchemaVersion, Name: r.Name, Version: r.Version}
-		if ma := findAsset(rel, ManifestAsset); ma != nil {
-			rc, err := a.GH.DownloadAsset(ctx, *ma)
-			if err != nil {
-				return err
-			}
-			data, _ := io.ReadAll(io.LimitReader(rc, 4<<20))
-			rc.Close()
-			_ = json.Unmarshal(data, man)
+		// the manifest must be read before anything is deleted: an unreadable one
+		// stops the deletion, it never stands for "no other package is left"
+		man, err := a.readManifest(ctx, rel, r.Name, r.Version)
+		if err != nil {
+			return fmt.Errorf("%s: nothing of it was deleted: %w", rel.TagName, err)
 		}
 		if as := findAsset(rel, r.Asset); as != nil {
 			if err := a.GH.DeleteAsset(ctx, as.ID); err != nil {

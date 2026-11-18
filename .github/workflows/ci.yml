@@ -9,9 +9,9 @@ permissions:
   contents: read
 
 env:
-  # Third-party actions must be pinned to a commit SHA (docs/supply-chain.md). "0" only warns; set "1" once the
-  # pins are in, and an unpinned third-party action fails the build.
-  ACTIONS_PIN_ENFORCE: "0"
+  # Third-party actions, and every action of release.yml, must be pinned to a commit SHA (docs/supply-chain.md).
+  # An unpinned one fails the build.
+  ACTIONS_PIN_ENFORCE: "1"
 
 jobs:
   test:
