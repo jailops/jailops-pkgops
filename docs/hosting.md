@@ -297,6 +297,16 @@ Limits, plainly:
   signed by the next run, but a changed old file would be carried on and served
   again. The GitHub Releases archive is an independent second copy:
   `pkgops verify-archive --from site` before signing reports a mismatch.
+- **CDN caches.** `fetch`, `verify-archive` and `prune --plan` ask for the index
+  and the signed catalogs with a `cb=TIME` query (`--no-cache-bust` turns it
+  off). A CDN or proxy that keys its cache on the full URL then returns the copy
+  published last instead of one cached before it; a static server ignores the
+  query, and a CDN that drops the query from its cache key ignores it too, so the
+  copy can stay stale until its cache expires (Pages: up to 10 minutes). Package
+  files are never given a query: a published file never changes its bytes.
+  When the archive is ahead of the site anyway (a deploy that failed or was
+  skipped), `verify-archive --heal-into DIR` restores the missing files into the
+  baseline; see the administration guide.
 - **No rollback serial.** The catalogs carry no signed counter or date (the tar
   mtime is not covered by the signature). A complete older snapshot of the site,
   catalogs and index of an earlier day, verifies. Its newest versions are

@@ -92,6 +92,8 @@ func cmdVerifyArchive(ctx context.Context, args []string) error {
 	repo := fs.String("repo", "", "GitHub OWNER/REPO that holds the archive releases")
 	from := fs.String("from", "", "published site URL, or a repository root directory, with the index to compare")
 	pruneFile := fs.String("prune", "", "prune manifest (entries listed there count as pruned)")
+	healInto := fs.String("heal-into", "", "baseline directory: when the ONLY problem is files archived but missing from the site, copy them from the archive into it (checked against the archive manifest) and exit 0; any other problem still fails and nothing is healed")
+	noBust := fs.Bool("no-cache-bust", false, "do not add ?cb=TIME to the request for the index of a URL")
 	gh := addGHFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -103,7 +105,7 @@ func cmdVerifyArchive(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	ix, err := loadIndex(ctx, *from)
+	ix, err := loadIndex(ctx, *from, *noBust)
 	if err != nil {
 		return err
 	}
@@ -117,7 +119,8 @@ func cmdVerifyArchive(ctx context.Context, args []string) error {
 			listed[e.Key()] = true
 		}
 	}
-	recs, err := (&archive.Archive{GH: c}).List(ctx)
+	arch := &archive.Archive{GH: c}
+	recs, err := arch.List(ctx)
 	if err != nil {
 		return err
 	}
@@ -134,7 +137,22 @@ func cmdVerifyArchive(ctx context.Context, args []string) error {
 	show("pruned from Pages, still archived (normal)", rep.PrunedStillArchived)
 	show("pruned from Pages and not archived (gone for good)", rep.PrunedNotArchived)
 	if !rep.OK() {
-		return errors.New("the Pages index and the archive disagree")
+		if *healInto == "" {
+			return errors.New("the Pages index and the archive disagree")
+		}
+		res, err := arch.Heal(ctx, *healInto, ix, recs, rep)
+		if err != nil {
+			if errors.Is(err, archive.ErrNotHealable) {
+				return fmt.Errorf("the Pages index and the archive disagree; nothing was healed: %w", err)
+			}
+			return fmt.Errorf("the Pages index and the archive disagree; healing failed, the baseline in %s is unchanged: %w", *healInto, err)
+		}
+		for _, k := range res.Healed {
+			fmt.Println("healed:", k)
+		}
+		fmt.Printf("notice: the archive was ahead of the site: %d file(s) restored from the archive into %s (%d already there, %d bytes downloaded); the next publish puts them back on the site\n",
+			len(res.Healed), *healInto, res.Present, res.Bytes)
+		return nil
 	}
 	fmt.Println("ok: every file on Pages is archived with the same sha256")
 	return nil

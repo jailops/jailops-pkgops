@@ -63,9 +63,15 @@ type Options struct {
 	// 64 KiB/s).
 	MinDeadline time.Duration
 	MinRate     int64
+	// NoCacheBust stops the index and the catalogs from being requested with
+	// a `cb=<unix time>` query. The query makes a CDN or proxy that keys its
+	// cache on the full URL fetch a fresh copy instead of an answer cached
+	// after the last publish; a static server ignores it. Package files are
+	// never given a query: their names are immutable.
+	NoCacheBust bool
 	// Log receives one line per file.
 	Log io.Writer
-	// Now stamps pruned entries (default time.Now).
+	// Now stamps pruned entries and the cache-busting query (default time.Now).
 	Now func() time.Time
 }
 
@@ -107,6 +113,25 @@ func (o *Options) deadline(n int64) time.Duration {
 		rate = 64 << 10
 	}
 	return base + time.Duration(n/rate)*time.Second
+}
+
+// bust returns u with the cache-busting query added (see NoCacheBust).
+func (o *Options) bust(u string) string {
+	if o.NoCacheBust {
+		return u
+	}
+	now := time.Now
+	if o.Now != nil {
+		now = o.Now
+	}
+	p, err := url.Parse(u)
+	if err != nil {
+		return u
+	}
+	q := p.Query()
+	q.Set("cb", strconv.FormatInt(now().Unix(), 10))
+	p.RawQuery = q.Encode()
+	return p.String()
 }
 
 func (o *Options) client() *http.Client {
@@ -152,11 +177,11 @@ func FetchIndex(ctx context.Context, o *Options) (*index.Index, []byte, error) {
 
 // getAll reads a small document (an index, a catalog) of at most limit bytes,
 // with the same idle timeout and deadline as a package download. The body is
-// only read for 200 answers.
+// only read for 200 answers. The request carries the cache-busting query.
 func getAll(ctx context.Context, o *Options, u string, limit int64) ([]byte, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, o.deadline(limit))
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, o.bust(u), nil)
 	if err != nil {
 		return nil, 0, err
 	}

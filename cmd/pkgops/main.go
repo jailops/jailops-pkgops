@@ -74,10 +74,12 @@ usage:
                  [--policy pkgops-repo.yaml] [--prune prune.yaml] [dist-dir | file.pkg ...]
   pkgops fetch   --from URL|github-releases:OWNER/REPO --into DIR [--abi a,b] [--prune prune.yaml] [--source pages|releases|auto]
                  [--pubkey repo.pub [--pubkey-sha256 HEX]]        verify the site's signed catalogs first
+                 [--no-cache-bust]        the index and catalogs are requested with ?cb=TIME unless this is set
   pkgops prune   --plan [--from URL|DIR] [--manifest prune.yaml] [--keep N | --older-than 90d | --name N --version V] [-n]
   pkgops archive push --repo OWNER/REPO [--from DIR]      keep every published .pkg in GitHub Releases
   pkgops archive prune --repo OWNER/REPO --abi A --name N --version V --reason R --confirm "delete from archive"
-  pkgops verify-archive --repo OWNER/REPO --from URL|DIR [--prune prune.yaml]
+  pkgops verify-archive --repo OWNER/REPO --from URL|DIR [--prune prune.yaml] [--heal-into DIR]
+                 --heal-into: files archived but missing from the site are copied from the archive into the baseline DIR
   pkgops verify  <repo-dir> [--pubkey repo.pub]
   pkgops verify  --all <repo-root> [--pubkey repo.pub] [--json]   every ABI and channel at once, with the index; changes nothing
   pkgops publish --from DIR --to DEST [--delete] [--ssh "ssh -i key"]
