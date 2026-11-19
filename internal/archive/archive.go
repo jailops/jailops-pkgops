@@ -475,40 +475,47 @@ func (a *Archive) Fetch(ctx context.Context, o fetch.Options) (*fetch.Result, er
 	}
 	res := &fetch.Result{Source: "releases"}
 	get := func(ctx context.Context, e index.Entry, dst string) error {
-		r := by[e.File]
-		rel, err := a.GH.GetReleaseByTag(ctx, Tag(r.Name, r.Version))
-		if err != nil {
-			return err
-		}
-		as := findAsset(rel, r.Asset)
-		if as == nil {
-			return fmt.Errorf("%w: the archive manifest lists %s but the release has no such asset", pkgerr.ErrNotFound, r.Asset)
-		}
-		rc, err := a.GH.DownloadAsset(ctx, *as)
-		if err != nil {
-			return err
-		}
-		defer rc.Close()
-		f, err := os.Create(dst) // no resume: assets are re-downloaded whole
-		if err != nil {
-			return err
-		}
-		// never more than the archive manifest says (+1 byte to see an excess)
-		n, err := io.Copy(f, io.LimitReader(rc, e.Size+1))
+		n, err := a.download(ctx, by[e.File], dst)
 		res.Bytes += n
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-		if err == nil && n > e.Size {
-			os.Remove(dst)
-			err = fmt.Errorf("%w: the archived asset %s is larger than the %d bytes its manifest lists", pkgerr.ErrInvalidPackage, r.Asset, e.Size)
-		}
 		return err
 	}
 	if err := fetch.Materialize(ctx, &o, ix, res, get); err != nil {
 		return nil, err
 	}
 	return res, nil
+}
+
+// download writes the archived asset of r to dst (no resume: assets are
+// downloaded whole) and returns the bytes written. It never writes more than
+// the archive manifest says (+1 byte to see an excess) and removes dst for an
+// asset that is larger. The caller verifies the content.
+func (a *Archive) download(ctx context.Context, r Record, dst string) (int64, error) {
+	rel, err := a.GH.GetReleaseByTag(ctx, Tag(r.Name, r.Version))
+	if err != nil {
+		return 0, err
+	}
+	as := findAsset(rel, r.Asset)
+	if as == nil {
+		return 0, fmt.Errorf("%w: the archive manifest lists %s but the release has no such asset", pkgerr.ErrNotFound, r.Asset)
+	}
+	rc, err := a.GH.DownloadAsset(ctx, *as)
+	if err != nil {
+		return 0, err
+	}
+	defer rc.Close()
+	f, err := os.Create(dst)
+	if err != nil {
+		return 0, err
+	}
+	n, err := io.Copy(f, io.LimitReader(rc, r.Size+1))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil && n > r.Size {
+		os.Remove(dst)
+		err = fmt.Errorf("%w: the archived asset %s is larger than the %d bytes its manifest lists", pkgerr.ErrInvalidPackage, r.Asset, r.Size)
+	}
+	return n, err
 }
 
 // Report compares the Pages index with the archive.

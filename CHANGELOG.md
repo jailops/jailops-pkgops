@@ -6,6 +6,18 @@ and `.goreleaser.yaml` publishes the GitHub release notes from the commits.
 
 ## [Unreleased]
 
+### Added
+- `pkgops verify-archive --heal-into DIR` heals the one mismatch that a failed or skipped deploy, a stale CDN cache or a
+  cancelled run leaves behind: files that the archive holds but the site lacks ("archived, not on Pages and not
+  pruned"). They are copied from GitHub Releases into the baseline in `DIR`, checked against the archive manifest
+  (sha256 and size) and against the index when it knows the file, and the index of `DIR` gets their entries. Any other
+  problem (a sha256 that differs, a live file that is not archived, a pruned file that is gone for good, a manifest
+  that cannot be read) still fails and heals nothing; an existing file with other bytes is never overwritten, nothing is
+  deleted, and the heal is all or nothing.
+- `pkgops fetch`, `verify-archive` and `prune --plan` request the index and the signed catalogs of a site with a
+  `cb=TIME` query, so a CDN or proxy that keys its cache on the URL returns the copy published last instead of one
+  cached before it. Package files are never given a query. `--no-cache-bust` turns it off.
+
 ## [0.3.1] - 2026-11-18
 
 ### Security

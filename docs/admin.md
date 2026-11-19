@@ -184,6 +184,20 @@ successful build:
   lists what is on Pages but not archived, archived but neither on Pages nor
   pruned, sha256 mismatches, and what was pruned from Pages and is still (or no
   longer) archived.
+- `pkgops verify-archive --heal-into DIR` heals one case: **the archive is ahead
+  of the site** (a deploy failed or was skipped after the archive step, a CDN
+  served an index cached before the last publish, a run was cancelled). When the
+  files archived but missing from the site are the only problem, it copies them
+  from the archive into the baseline in `DIR`, adds them to the index there, and
+  exits 0 with `healed:` lines and a notice; the next publish then puts them back
+  on the site. Each file is checked against the archive manifest (sha256 and
+  size) and against the index when it knows the file. Everything else still
+  fails and nothing is changed: a sha256 that differs between the site and the
+  archive, a live file that is not archived, a pruned file that is gone for good,
+  a manifest or asset that is missing or unreadable, an existing file with other
+  bytes (never overwritten). It deletes nothing and is all or nothing: the files
+  are downloaded and verified first, then moved into place, then the index is
+  written.
 
   A release whose `archive.json` is gone is read from its package assets, and
   from `archive.json.new`, the complete copy a replacement leaves until it is done;

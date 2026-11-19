@@ -208,10 +208,11 @@ pkgops repo    [--repo DIR] [--key repo.key] [--sign pubkey|fingerprints]
                [--files-list] [--replace] [--policy pkgops-repo.yaml] [--prune prune.yaml] [file.pkg ...]
 pkgops fetch   --from URL|github-releases:OWNER/REPO --into DIR [--abi a,b] [--prune prune.yaml]
                [--pubkey repo.pub]          verify the site's signed catalogs before taking the baseline
+               [--no-cache-bust]            do not add ?cb=TIME to the requests for the index and the catalogs
 pkgops prune   --plan [--from URL|DIR] [--manifest prune.yaml] [--keep N | --older-than 90d | --name N --version V] [-n]
 pkgops archive push --repo OWNER/REPO         archive every published .pkg in GitHub Releases
 pkgops archive prune --repo OWNER/REPO ...    delete from the archive (separate, confirmed, audited)
-pkgops verify-archive --repo OWNER/REPO --from URL|DIR
+pkgops verify-archive --repo OWNER/REPO --from URL|DIR [--prune prune.yaml] [--heal-into DIR]
 pkgops verify  <repo-dir> [--pubkey repo.pub]
 pkgops verify  --all <repo-root> [--pubkey repo.pub] [--json]   every ABI and channel and the index, read-only
 pkgops publish --from DIR --to DEST [--delete] [--ssh "ssh -i key"]

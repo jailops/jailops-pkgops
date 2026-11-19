@@ -36,6 +36,7 @@ func cmdFetch(ctx context.Context, args []string) error {
 	source := fs.String("source", "auto", "pages, releases or auto (pages, then the archive when the site has no baseline)")
 	pubkey := fs.String("pubkey", "", "verify the site's signed catalogs with this public key (from a trusted place, not the site) before anything is fetched")
 	pubSum := fs.String("pubkey-sha256", "", "with --pubkey: refuse the key unless its file has this sha256 (the fingerprint)")
+	noBust := fs.Bool("no-cache-bust", false, "do not add ?cb=TIME to the requests for the index and the catalogs (the query makes a CDN fetch a fresh copy)")
 	gh := addGHFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -50,7 +51,7 @@ func cmdFetch(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	o := fetch.Options{Into: *into, ABIs: splitABIs(*abis), Prune: m, Log: os.Stderr}
+	o := fetch.Options{Into: *into, ABIs: splitABIs(*abis), Prune: m, Log: os.Stderr, NoCacheBust: *noBust}
 	if *pubSum != "" && *pubkey == "" {
 		return errors.New("--pubkey-sha256 needs --pubkey")
 	}
@@ -128,9 +129,9 @@ func parseAge(s string) (time.Duration, error) {
 	return time.ParseDuration(s)
 }
 
-func loadIndex(ctx context.Context, from string) (*index.Index, error) {
+func loadIndex(ctx context.Context, from string, noBust bool) (*index.Index, error) {
 	if strings.HasPrefix(from, "http://") || strings.HasPrefix(from, "https://") {
-		ix, _, err := fetch.FetchIndex(ctx, &fetch.Options{From: from})
+		ix, _, err := fetch.FetchIndex(ctx, &fetch.Options{From: from, NoCacheBust: noBust})
 		return ix, err
 	}
 	ix, err := index.Read(from)
@@ -147,6 +148,7 @@ func cmdPrune(ctx context.Context, args []string) error {
 	from := fs.String("from", "repo", "the published site URL, or a repository root directory, to plan against")
 	manifest := fs.String("manifest", prune.FileName, "prune manifest to create or update")
 	abi := fs.String("abi", "", "limit to one ABI")
+	noBust := fs.Bool("no-cache-bust", false, "do not add ?cb=TIME to the request for the index of a URL")
 	name := fs.String("name", "", "limit to one package")
 	version := fs.String("version", "", "prune this version (needs --name)")
 	keep := fs.Int("keep", 0, "prune everything but the newest N versions of each package")
@@ -161,7 +163,7 @@ func cmdPrune(ctx context.Context, args []string) error {
 	if !*plan {
 		return errors.New("pkgops never deletes published files by itself: use `pkgops prune --plan ...` to write the plan, review and commit prune.yaml, and let the publish workflow apply it")
 	}
-	ix, err := loadIndex(ctx, *from)
+	ix, err := loadIndex(ctx, *from, *noBust)
 	if err != nil {
 		return err
 	}
