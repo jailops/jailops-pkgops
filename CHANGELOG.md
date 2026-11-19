@@ -6,6 +6,8 @@ and `.goreleaser.yaml` publishes the GitHub release notes from the commits.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-19
+
 ### Added
 - `pkgops verify-archive --heal-into DIR` heals the one mismatch that a failed or skipped deploy, a stale CDN cache or a
   cancelled run leaves behind: files that the archive holds but the site lacks ("archived, not on Pages and not
